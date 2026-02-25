@@ -3,12 +3,22 @@ use sqlx::MySqlPool;
 
 use super::{ColumnInfo, EnumInfo, SchemaInfo, TableInfo};
 
-pub async fn introspect(pool: &MySqlPool, schemas: &[String]) -> Result<SchemaInfo> {
+pub async fn introspect(
+    pool: &MySqlPool,
+    schemas: &[String],
+    include_views: bool,
+) -> Result<SchemaInfo> {
     let tables = fetch_tables(pool, schemas).await?;
+    let views = if include_views {
+        fetch_views(pool, schemas).await?
+    } else {
+        Vec::new()
+    };
     let enums = extract_enums(&tables);
 
     Ok(SchemaInfo {
         tables,
+        views,
         enums,
         composite_types: Vec::new(),
         domains: Vec::new(),
@@ -69,6 +79,61 @@ async fn fetch_tables(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableI
     }
 
     Ok(tables)
+}
+
+async fn fetch_views(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableInfo>> {
+    let placeholders: Vec<String> = (0..schemas.len()).map(|_| "?".to_string()).collect();
+    let query = format!(
+        r#"
+        SELECT
+            c.TABLE_SCHEMA,
+            c.TABLE_NAME,
+            c.COLUMN_NAME,
+            c.DATA_TYPE,
+            c.COLUMN_TYPE,
+            c.IS_NULLABLE,
+            c.ORDINAL_POSITION
+        FROM information_schema.COLUMNS c
+        JOIN information_schema.TABLES t
+            ON t.TABLE_SCHEMA = c.TABLE_SCHEMA
+            AND t.TABLE_NAME = c.TABLE_NAME
+            AND t.TABLE_TYPE = 'VIEW'
+        WHERE c.TABLE_SCHEMA IN ({})
+        ORDER BY c.TABLE_SCHEMA, c.TABLE_NAME, c.ORDINAL_POSITION
+        "#,
+        placeholders.join(",")
+    );
+
+    let mut q = sqlx::query_as::<_, (String, String, String, String, String, String, u32)>(&query);
+    for schema in schemas {
+        q = q.bind(schema);
+    }
+    let rows = q.fetch_all(pool).await?;
+
+    let mut views: Vec<TableInfo> = Vec::new();
+    let mut current_key: Option<(String, String)> = None;
+
+    for (schema, table, col_name, data_type, column_type, nullable, ordinal) in rows {
+        let key = (schema.clone(), table.clone());
+        if current_key.as_ref() != Some(&key) {
+            current_key = Some(key);
+            views.push(TableInfo {
+                schema_name: schema.clone(),
+                name: table.clone(),
+                columns: Vec::new(),
+            });
+        }
+        views.last_mut().unwrap().columns.push(ColumnInfo {
+            name: col_name,
+            data_type,
+            udt_name: column_type,
+            is_nullable: nullable == "YES",
+            ordinal_position: ordinal as i32,
+            schema_name: schema,
+        });
+    }
+
+    Ok(views)
 }
 
 /// Extract inline ENUMs from column types.

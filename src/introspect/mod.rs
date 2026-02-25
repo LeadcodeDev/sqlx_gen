@@ -47,6 +47,7 @@ pub struct DomainInfo {
 #[derive(Debug, Clone, Default)]
 pub struct SchemaInfo {
     pub tables: Vec<TableInfo>,
+    pub views: Vec<TableInfo>,
     pub enums: Vec<EnumInfo>,
     pub composite_types: Vec<CompositeTypeInfo>,
     pub domains: Vec<DomainInfo>,

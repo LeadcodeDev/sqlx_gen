@@ -94,6 +94,21 @@ pub fn generate(
         });
     }
 
+    // Generate struct files for each view
+    for view in &schema_info.views {
+        let (tokens, imports) =
+            struct_gen::generate_struct(view, db_kind, schema_info, extra_derives, type_overrides);
+        let imports = filter_imports(&imports, single_file);
+        let code = format_tokens_with_imports(&tokens, &imports);
+        let module_name = normalize_module_name(&view.name);
+        let origin = format!("View: {}.{}", view.schema_name, view.name);
+        files.push(GeneratedFile {
+            filename: format!("{}.rs", module_name),
+            origin: Some(origin),
+            code,
+        });
+    }
+
     // Generate types file (enums, composites, domains)
     // Each item is formatted individually so we can insert blank lines between them.
     let mut types_blocks: Vec<String> = Vec::new();
@@ -679,5 +694,89 @@ mod tests {
             let parse_result = syn::parse_file(&f.code);
             assert!(parse_result.is_ok(), "Failed to parse {}: {:?}", f.filename, parse_result.err());
         }
+    }
+
+    // ========== generate() — views ==========
+
+    fn make_view(name: &str, columns: Vec<ColumnInfo>) -> TableInfo {
+        TableInfo {
+            schema_name: "public".to_string(),
+            name: name.to_string(),
+            columns,
+        }
+    }
+
+    #[test]
+    fn test_generate_one_view() {
+        let schema = SchemaInfo {
+            views: vec![make_view("active_users", vec![make_col("id", "int4")])],
+            ..Default::default()
+        };
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].filename, "active_users.rs");
+    }
+
+    #[test]
+    fn test_generate_view_origin() {
+        let schema = SchemaInfo {
+            views: vec![make_view("active_users", vec![make_col("id", "int4")])],
+            ..Default::default()
+        };
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        assert_eq!(files[0].origin, Some("View: public.active_users".to_string()));
+    }
+
+    #[test]
+    fn test_generate_tables_and_views() {
+        let schema = SchemaInfo {
+            tables: vec![make_table("users", vec![make_col("id", "int4")])],
+            views: vec![make_view("active_users", vec![make_col("id", "int4")])],
+            ..Default::default()
+        };
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        assert_eq!(files.len(), 2);
+    }
+
+    #[test]
+    fn test_generate_view_valid_rust() {
+        let schema = SchemaInfo {
+            views: vec![make_view("active_users", vec![
+                make_col("id", "int4"),
+                make_col("name", "text"),
+            ])],
+            ..Default::default()
+        };
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let parse_result = syn::parse_file(&files[0].code);
+        assert!(parse_result.is_ok(), "Failed to parse: {:?}", parse_result.err());
+    }
+
+    #[test]
+    fn test_generate_view_nullable_column() {
+        let schema = SchemaInfo {
+            views: vec![make_view("v", vec![ColumnInfo {
+                name: "email".to_string(),
+                data_type: "text".to_string(),
+                udt_name: "text".to_string(),
+                is_nullable: true,
+                ordinal_position: 0,
+                schema_name: "public".to_string(),
+            }])],
+            ..Default::default()
+        };
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        assert!(files[0].code.contains("Option<String>"));
+    }
+
+    #[test]
+    fn test_generate_view_single_file_mode() {
+        let schema = SchemaInfo {
+            tables: vec![make_table("users", vec![make_col("id", "int4")])],
+            views: vec![make_view("active_users", vec![make_col("id", "int4")])],
+            ..Default::default()
+        };
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), true);
+        assert_eq!(files.len(), 2);
     }
 }

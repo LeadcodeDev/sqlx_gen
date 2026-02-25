@@ -22,19 +22,19 @@ async fn main() -> Result<()> {
     let mut schema_info = match db_kind {
         DatabaseKind::Postgres => {
             let pool = PgPool::connect(&args.database_url).await?;
-            let info = introspect::postgres::introspect(&pool, &args.schemas).await?;
+            let info = introspect::postgres::introspect(&pool, &args.schemas, args.views).await?;
             pool.close().await;
             info
         }
         DatabaseKind::Mysql => {
             let pool = MySqlPool::connect(&args.database_url).await?;
-            let info = introspect::mysql::introspect(&pool, &args.schemas).await?;
+            let info = introspect::mysql::introspect(&pool, &args.schemas, args.views).await?;
             pool.close().await;
             info
         }
         DatabaseKind::Sqlite => {
             let pool = SqlitePool::connect(&args.database_url).await?;
-            let info = introspect::sqlite::introspect(&pool).await?;
+            let info = introspect::sqlite::introspect(&pool, args.views).await?;
             pool.close().await;
             info
         }
@@ -46,10 +46,12 @@ async fn main() -> Result<()> {
     }
 
     let table_count = schema_info.tables.len();
+    let view_count = schema_info.views.len();
     let enum_count = schema_info.enums.len();
     eprintln!(
-        "Found {} tables, {} enums, {} composite types, {} domains",
+        "Found {} tables, {} views, {} enums, {} composite types, {} domains",
         table_count,
+        view_count,
         enum_count,
         schema_info.composite_types.len(),
         schema_info.domains.len(),

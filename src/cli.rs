@@ -33,6 +33,10 @@ pub struct Args {
     #[arg(long, value_delimiter = ',')]
     pub tables: Option<Vec<String>>,
 
+    /// Also generate structs for SQL views
+    #[arg(long)]
+    pub views: bool,
+
     /// Print to stdout without writing files
     #[arg(long)]
     pub dry_run: bool,
@@ -85,6 +89,7 @@ mod tests {
             type_overrides: vec![],
             single_file: false,
             tables: None,
+            views: false,
             dry_run: false,
         }
     }
@@ -98,6 +103,7 @@ mod tests {
             type_overrides: overrides.into_iter().map(|s| s.to_string()).collect(),
             single_file: false,
             tables: None,
+            views: false,
             dry_run: false,
         }
     }

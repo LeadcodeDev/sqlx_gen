@@ -3,11 +3,17 @@ use sqlx::SqlitePool;
 
 use super::{ColumnInfo, SchemaInfo, TableInfo};
 
-pub async fn introspect(pool: &SqlitePool) -> Result<SchemaInfo> {
+pub async fn introspect(pool: &SqlitePool, include_views: bool) -> Result<SchemaInfo> {
     let tables = fetch_tables(pool).await?;
+    let views = if include_views {
+        fetch_views(pool).await?
+    } else {
+        Vec::new()
+    };
 
     Ok(SchemaInfo {
         tables,
+        views,
         enums: Vec::new(),
         composite_types: Vec::new(),
         domains: Vec::new(),
@@ -33,6 +39,27 @@ async fn fetch_tables(pool: &SqlitePool) -> Result<Vec<TableInfo>> {
     }
 
     Ok(tables)
+}
+
+async fn fetch_views(pool: &SqlitePool) -> Result<Vec<TableInfo>> {
+    let view_names: Vec<(String,)> = sqlx::query_as(
+        "SELECT name FROM sqlite_master WHERE type = 'view' ORDER BY name",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut views = Vec::new();
+
+    for (view_name,) in view_names {
+        let columns = fetch_columns(pool, &view_name).await?;
+        views.push(TableInfo {
+            schema_name: "main".to_string(),
+            name: view_name,
+            columns,
+        });
+    }
+
+    Ok(views)
 }
 
 async fn fetch_columns(pool: &SqlitePool, table_name: &str) -> Result<Vec<ColumnInfo>> {

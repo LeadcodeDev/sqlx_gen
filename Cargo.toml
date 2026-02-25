@@ -3,6 +3,11 @@ name = "sqlx-gen"
 version = "0.1.0"
 edition = "2021"
 description = "Generate Rust structs from database schema introspection"
+license = "MIT"
+repository = "https://github.com/LeadcodeDev/sqlx-gen"
+readme = "README.md"
+keywords = ["sqlx", "codegen", "postgres", "mysql", "sqlite"]
+categories = ["database", "development-tools"]
 
 [dependencies]
 sqlx = { version = "0.8", features = [

@@ -3,6 +3,7 @@ pub mod postgres;
 pub mod sqlite;
 
 #[derive(Debug, Clone)]
+#[allow(unused)]
 pub struct ColumnInfo {
     pub name: String,
     /// High-level data type (e.g. "integer", "character varying")

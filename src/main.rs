@@ -1,14 +1,11 @@
-mod cli;
-mod codegen;
-mod introspect;
-mod typemap;
-mod writer;
-
 use anyhow::Result;
 use clap::Parser;
 use sqlx::{MySqlPool, PgPool, SqlitePool};
 
-use cli::{Args, DatabaseKind};
+use sqlx_gen::cli::{Args, DatabaseKind};
+use sqlx_gen::codegen;
+use sqlx_gen::introspect;
+use sqlx_gen::writer;
 
 #[tokio::main]
 async fn main() -> Result<()> {

@@ -64,3 +64,350 @@ pub fn map_type(udt_name: &str, schema_info: &SchemaInfo) -> RustType {
         _ => RustType::simple("String"), // fallback
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::introspect::{CompositeTypeInfo, DomainInfo, EnumInfo};
+
+    fn empty_schema() -> SchemaInfo {
+        SchemaInfo::default()
+    }
+
+    fn schema_with_enum(name: &str) -> SchemaInfo {
+        SchemaInfo {
+            enums: vec![EnumInfo {
+                schema_name: "public".to_string(),
+                name: name.to_string(),
+                variants: vec!["a".to_string()],
+            }],
+            ..Default::default()
+        }
+    }
+
+    fn schema_with_composite(name: &str) -> SchemaInfo {
+        SchemaInfo {
+            composite_types: vec![CompositeTypeInfo {
+                schema_name: "public".to_string(),
+                name: name.to_string(),
+                fields: vec![],
+            }],
+            ..Default::default()
+        }
+    }
+
+    fn schema_with_domain(name: &str, base: &str) -> SchemaInfo {
+        SchemaInfo {
+            domains: vec![DomainInfo {
+                schema_name: "public".to_string(),
+                name: name.to_string(),
+                base_type: base.to_string(),
+            }],
+            ..Default::default()
+        }
+    }
+
+    // --- builtins ---
+
+    #[test]
+    fn test_bool() {
+        assert_eq!(map_type("bool", &empty_schema()).path, "bool");
+    }
+
+    #[test]
+    fn test_int2() {
+        assert_eq!(map_type("int2", &empty_schema()).path, "i16");
+    }
+
+    #[test]
+    fn test_smallint() {
+        assert_eq!(map_type("smallint", &empty_schema()).path, "i16");
+    }
+
+    #[test]
+    fn test_smallserial() {
+        assert_eq!(map_type("smallserial", &empty_schema()).path, "i16");
+    }
+
+    #[test]
+    fn test_int4() {
+        assert_eq!(map_type("int4", &empty_schema()).path, "i32");
+    }
+
+    #[test]
+    fn test_integer() {
+        assert_eq!(map_type("integer", &empty_schema()).path, "i32");
+    }
+
+    #[test]
+    fn test_serial() {
+        assert_eq!(map_type("serial", &empty_schema()).path, "i32");
+    }
+
+    #[test]
+    fn test_int8() {
+        assert_eq!(map_type("int8", &empty_schema()).path, "i64");
+    }
+
+    #[test]
+    fn test_bigint() {
+        assert_eq!(map_type("bigint", &empty_schema()).path, "i64");
+    }
+
+    #[test]
+    fn test_bigserial() {
+        assert_eq!(map_type("bigserial", &empty_schema()).path, "i64");
+    }
+
+    #[test]
+    fn test_float4() {
+        assert_eq!(map_type("float4", &empty_schema()).path, "f32");
+    }
+
+    #[test]
+    fn test_real() {
+        assert_eq!(map_type("real", &empty_schema()).path, "f32");
+    }
+
+    #[test]
+    fn test_float8() {
+        assert_eq!(map_type("float8", &empty_schema()).path, "f64");
+    }
+
+    #[test]
+    fn test_double_precision() {
+        assert_eq!(map_type("double precision", &empty_schema()).path, "f64");
+    }
+
+    #[test]
+    fn test_numeric() {
+        let rt = map_type("numeric", &empty_schema());
+        assert_eq!(rt.path, "Decimal");
+        assert!(rt.needs_import.as_ref().unwrap().contains("rust_decimal"));
+    }
+
+    #[test]
+    fn test_decimal() {
+        let rt = map_type("decimal", &empty_schema());
+        assert_eq!(rt.path, "Decimal");
+    }
+
+    #[test]
+    fn test_varchar() {
+        assert_eq!(map_type("varchar", &empty_schema()).path, "String");
+    }
+
+    #[test]
+    fn test_text() {
+        assert_eq!(map_type("text", &empty_schema()).path, "String");
+    }
+
+    #[test]
+    fn test_bpchar() {
+        assert_eq!(map_type("bpchar", &empty_schema()).path, "String");
+    }
+
+    #[test]
+    fn test_citext() {
+        assert_eq!(map_type("citext", &empty_schema()).path, "String");
+    }
+
+    #[test]
+    fn test_name() {
+        assert_eq!(map_type("name", &empty_schema()).path, "String");
+    }
+
+    #[test]
+    fn test_bytea() {
+        assert_eq!(map_type("bytea", &empty_schema()).path, "Vec<u8>");
+    }
+
+    #[test]
+    fn test_uuid() {
+        let rt = map_type("uuid", &empty_schema());
+        assert_eq!(rt.path, "Uuid");
+        assert!(rt.needs_import.as_ref().unwrap().contains("uuid::Uuid"));
+    }
+
+    #[test]
+    fn test_json() {
+        let rt = map_type("json", &empty_schema());
+        assert_eq!(rt.path, "Value");
+        assert!(rt.needs_import.as_ref().unwrap().contains("serde_json"));
+    }
+
+    #[test]
+    fn test_jsonb() {
+        let rt = map_type("jsonb", &empty_schema());
+        assert_eq!(rt.path, "Value");
+    }
+
+    #[test]
+    fn test_timestamp() {
+        let rt = map_type("timestamp", &empty_schema());
+        assert_eq!(rt.path, "NaiveDateTime");
+        assert!(rt.needs_import.as_ref().unwrap().contains("chrono"));
+    }
+
+    #[test]
+    fn test_timestamptz() {
+        let rt = map_type("timestamptz", &empty_schema());
+        assert_eq!(rt.path, "DateTime<Utc>");
+        assert!(rt.needs_import.as_ref().unwrap().contains("chrono"));
+    }
+
+    #[test]
+    fn test_date() {
+        let rt = map_type("date", &empty_schema());
+        assert_eq!(rt.path, "NaiveDate");
+    }
+
+    #[test]
+    fn test_time() {
+        let rt = map_type("time", &empty_schema());
+        assert_eq!(rt.path, "NaiveTime");
+    }
+
+    #[test]
+    fn test_timetz() {
+        let rt = map_type("timetz", &empty_schema());
+        assert_eq!(rt.path, "NaiveTime");
+    }
+
+    #[test]
+    fn test_inet() {
+        let rt = map_type("inet", &empty_schema());
+        assert_eq!(rt.path, "IpNetwork");
+        assert!(rt.needs_import.as_ref().unwrap().contains("ipnetwork"));
+    }
+
+    #[test]
+    fn test_cidr() {
+        let rt = map_type("cidr", &empty_schema());
+        assert_eq!(rt.path, "IpNetwork");
+    }
+
+    #[test]
+    fn test_oid() {
+        assert_eq!(map_type("oid", &empty_schema()).path, "u32");
+    }
+
+    // --- arrays ---
+
+    #[test]
+    fn test_array_int4() {
+        assert_eq!(map_type("_int4", &empty_schema()).path, "Vec<i32>");
+    }
+
+    #[test]
+    fn test_array_text() {
+        assert_eq!(map_type("_text", &empty_schema()).path, "Vec<String>");
+    }
+
+    #[test]
+    fn test_array_uuid() {
+        let rt = map_type("_uuid", &empty_schema());
+        assert_eq!(rt.path, "Vec<Uuid>");
+        assert!(rt.needs_import.is_some());
+    }
+
+    #[test]
+    fn test_array_bool() {
+        assert_eq!(map_type("_bool", &empty_schema()).path, "Vec<bool>");
+    }
+
+    #[test]
+    fn test_array_jsonb() {
+        let rt = map_type("_jsonb", &empty_schema());
+        assert_eq!(rt.path, "Vec<Value>");
+        assert!(rt.needs_import.is_some());
+    }
+
+    #[test]
+    fn test_array_bytea() {
+        assert_eq!(map_type("_bytea", &empty_schema()).path, "Vec<Vec<u8>>");
+    }
+
+    // --- enums/composites/domains ---
+
+    #[test]
+    fn test_enum_status() {
+        let schema = schema_with_enum("status");
+        let rt = map_type("status", &schema);
+        assert_eq!(rt.path, "Status");
+        assert!(rt.needs_import.as_ref().unwrap().contains("super::types::Status"));
+    }
+
+    #[test]
+    fn test_enum_user_role() {
+        let schema = schema_with_enum("user_role");
+        let rt = map_type("user_role", &schema);
+        assert_eq!(rt.path, "UserRole");
+    }
+
+    #[test]
+    fn test_composite_address() {
+        let schema = schema_with_composite("address");
+        let rt = map_type("address", &schema);
+        assert_eq!(rt.path, "Address");
+        assert!(rt.needs_import.as_ref().unwrap().contains("super::types::Address"));
+    }
+
+    #[test]
+    fn test_composite_geo_point() {
+        let schema = schema_with_composite("geo_point");
+        let rt = map_type("geo_point", &schema);
+        assert_eq!(rt.path, "GeoPoint");
+    }
+
+    #[test]
+    fn test_domain_text() {
+        let schema = schema_with_domain("email", "text");
+        let rt = map_type("email", &schema);
+        assert_eq!(rt.path, "String");
+    }
+
+    #[test]
+    fn test_domain_int4() {
+        let schema = schema_with_domain("positive_int", "int4");
+        let rt = map_type("positive_int", &schema);
+        assert_eq!(rt.path, "i32");
+    }
+
+    #[test]
+    fn test_domain_uuid() {
+        let schema = schema_with_domain("my_uuid", "uuid");
+        let rt = map_type("my_uuid", &schema);
+        assert_eq!(rt.path, "Uuid");
+        assert!(rt.needs_import.is_some());
+    }
+
+    // --- arrays of custom types ---
+
+    #[test]
+    fn test_array_enum() {
+        let schema = schema_with_enum("status");
+        let rt = map_type("_status", &schema);
+        assert_eq!(rt.path, "Vec<Status>");
+        assert!(rt.needs_import.is_some());
+    }
+
+    #[test]
+    fn test_array_composite() {
+        let schema = schema_with_composite("address");
+        let rt = map_type("_address", &schema);
+        assert_eq!(rt.path, "Vec<Address>");
+    }
+
+    // --- fallback ---
+
+    #[test]
+    fn test_geometry_fallback() {
+        assert_eq!(map_type("geometry", &empty_schema()).path, "String");
+    }
+
+    #[test]
+    fn test_hstore_fallback() {
+        assert_eq!(map_type("hstore", &empty_schema()).path, "String");
+    }
+}

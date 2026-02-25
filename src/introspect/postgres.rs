@@ -153,7 +153,7 @@ async fn fetch_composite_types(
             data_type: field_type.clone(),
             udt_name: field_type,
             is_nullable: nullable == "YES",
-            ordinal_position: ordinal as i32,
+            ordinal_position: ordinal,
             schema_name: schema,
         });
     }

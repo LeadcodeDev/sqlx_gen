@@ -110,3 +110,160 @@ fn parse_enum_variants(column_type: &str) -> Vec<String> {
         None => Vec::new(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_table(name: &str, columns: Vec<ColumnInfo>) -> TableInfo {
+        TableInfo {
+            schema_name: "test_db".to_string(),
+            name: name.to_string(),
+            columns,
+        }
+    }
+
+    fn make_col(name: &str, udt_name: &str) -> ColumnInfo {
+        ColumnInfo {
+            name: name.to_string(),
+            data_type: "varchar".to_string(),
+            udt_name: udt_name.to_string(),
+            is_nullable: false,
+            ordinal_position: 0,
+            schema_name: "test_db".to_string(),
+        }
+    }
+
+    // ========== parse_enum_variants ==========
+
+    #[test]
+    fn test_parse_simple() {
+        assert_eq!(
+            parse_enum_variants("enum('a','b','c')"),
+            vec!["a", "b", "c"]
+        );
+    }
+
+    #[test]
+    fn test_parse_single_variant() {
+        assert_eq!(parse_enum_variants("enum('only')"), vec!["only"]);
+    }
+
+    #[test]
+    fn test_parse_with_spaces() {
+        assert_eq!(
+            parse_enum_variants("enum( 'a' , 'b' )"),
+            vec!["a", "b"]
+        );
+    }
+
+    #[test]
+    fn test_parse_empty_parens() {
+        let result = parse_enum_variants("enum()");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_parse_varchar_not_enum() {
+        let result = parse_enum_variants("varchar(255)");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_parse_int_not_enum() {
+        let result = parse_enum_variants("int");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_parse_with_spaces_in_value() {
+        assert_eq!(
+            parse_enum_variants("enum('with space','no')"),
+            vec!["with space", "no"]
+        );
+    }
+
+    #[test]
+    fn test_parse_empty_variant_filtered() {
+        let result = parse_enum_variants("enum('a','','c')");
+        assert_eq!(result, vec!["a", "c"]);
+    }
+
+    #[test]
+    fn test_parse_uppercase_enum_not_matched() {
+        // "ENUM(" doesn't match "enum(" prefix
+        let result = parse_enum_variants("ENUM('a','b')");
+        assert!(result.is_empty());
+    }
+
+    // ========== extract_enums ==========
+
+    #[test]
+    fn test_extract_from_enum_column() {
+        let tables = vec![make_table(
+            "users",
+            vec![make_col("status", "enum('active','inactive')")],
+        )];
+        let enums = extract_enums(&tables);
+        assert_eq!(enums.len(), 1);
+        assert_eq!(enums[0].variants, vec!["active", "inactive"]);
+    }
+
+    #[test]
+    fn test_extract_enum_name_format() {
+        let tables = vec![make_table(
+            "users",
+            vec![make_col("status", "enum('a')")],
+        )];
+        let enums = extract_enums(&tables);
+        assert_eq!(enums[0].name, "users_status");
+    }
+
+    #[test]
+    fn test_extract_no_enums() {
+        let tables = vec![make_table(
+            "users",
+            vec![make_col("id", "int"), make_col("name", "varchar(255)")],
+        )];
+        let enums = extract_enums(&tables);
+        assert!(enums.is_empty());
+    }
+
+    #[test]
+    fn test_extract_two_enum_columns_same_table() {
+        let tables = vec![make_table(
+            "users",
+            vec![
+                make_col("status", "enum('active','inactive')"),
+                make_col("role", "enum('admin','user')"),
+            ],
+        )];
+        let enums = extract_enums(&tables);
+        assert_eq!(enums.len(), 2);
+        assert_eq!(enums[0].name, "users_status");
+        assert_eq!(enums[1].name, "users_role");
+    }
+
+    #[test]
+    fn test_extract_enums_from_multiple_tables() {
+        let tables = vec![
+            make_table("users", vec![make_col("status", "enum('a')")]),
+            make_table("posts", vec![make_col("state", "enum('b')")]),
+        ];
+        let enums = extract_enums(&tables);
+        assert_eq!(enums.len(), 2);
+    }
+
+    #[test]
+    fn test_extract_non_enum_column_ignored() {
+        let tables = vec![make_table(
+            "users",
+            vec![
+                make_col("id", "int(11)"),
+                make_col("status", "enum('a')"),
+            ],
+        )];
+        let enums = extract_enums(&tables);
+        assert_eq!(enums.len(), 1);
+    }
+}

@@ -93,3 +93,175 @@ pub fn generate_composite(
 
     (tokens, imports)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::codegen::parse_and_format;
+    use crate::introspect::ColumnInfo;
+
+    fn make_composite(name: &str, fields: Vec<ColumnInfo>) -> CompositeTypeInfo {
+        CompositeTypeInfo {
+            schema_name: "public".to_string(),
+            name: name.to_string(),
+            fields,
+        }
+    }
+
+    fn make_field(name: &str, udt_name: &str, nullable: bool) -> ColumnInfo {
+        ColumnInfo {
+            name: name.to_string(),
+            data_type: udt_name.to_string(),
+            udt_name: udt_name.to_string(),
+            is_nullable: nullable,
+            ordinal_position: 0,
+            schema_name: "public".to_string(),
+        }
+    }
+
+    fn gen(composite: &CompositeTypeInfo) -> String {
+        let schema = SchemaInfo::default();
+        let (tokens, _) = generate_composite(composite, DatabaseKind::Postgres, &schema, &[], &HashMap::new());
+        parse_and_format(&tokens)
+    }
+
+    fn gen_with(
+        composite: &CompositeTypeInfo,
+        derives: &[String],
+        overrides: &HashMap<String, String>,
+    ) -> (String, BTreeSet<String>) {
+        let schema = SchemaInfo::default();
+        let (tokens, imports) = generate_composite(composite, DatabaseKind::Postgres, &schema, derives, overrides);
+        (parse_and_format(&tokens), imports)
+    }
+
+    // --- basic structure ---
+
+    #[test]
+    fn test_simple_composite() {
+        let c = make_composite("address", vec![
+            make_field("street", "text", false),
+            make_field("city", "text", false),
+        ]);
+        let code = gen(&c);
+        assert!(code.contains("pub street: String"));
+        assert!(code.contains("pub city: String"));
+    }
+
+    #[test]
+    fn test_name_pascal_case() {
+        let c = make_composite("geo_point", vec![make_field("x", "float8", false)]);
+        let code = gen(&c);
+        assert!(code.contains("pub struct GeoPoint"));
+    }
+
+    #[test]
+    fn test_doc_comment() {
+        let c = make_composite("address", vec![make_field("x", "text", false)]);
+        let code = gen(&c);
+        assert!(code.contains("Composite type: public.address"));
+    }
+
+    #[test]
+    fn test_sqlx_type_name() {
+        let c = make_composite("geo_point", vec![make_field("x", "float8", false)]);
+        let code = gen(&c);
+        assert!(code.contains("sqlx(type_name = \"geo_point\")"));
+    }
+
+    // --- fields ---
+
+    #[test]
+    fn test_nullable_field() {
+        let c = make_composite("address", vec![make_field("zip", "text", true)]);
+        let code = gen(&c);
+        assert!(code.contains("Option<String>"));
+    }
+
+    #[test]
+    fn test_non_nullable_field() {
+        let c = make_composite("address", vec![make_field("city", "text", false)]);
+        let code = gen(&c);
+        assert!(code.contains("pub city: String"));
+        assert!(!code.contains("Option"));
+    }
+
+    #[test]
+    fn test_keyword_field_prefixed() {
+        let c = make_composite("item", vec![make_field("type", "text", false)]);
+        let code = gen(&c);
+        assert!(code.contains("pub item_type: String"));
+        assert!(code.contains("sqlx(rename = \"type\")"));
+    }
+
+    // --- rename ---
+
+    #[test]
+    fn test_camel_case_field_renamed() {
+        let c = make_composite("address", vec![make_field("StreetName", "text", false)]);
+        let code = gen(&c);
+        assert!(code.contains("pub street_name: String"));
+        assert!(code.contains("sqlx(rename = \"StreetName\")"));
+    }
+
+    #[test]
+    fn test_snake_case_field_no_rename() {
+        let c = make_composite("address", vec![make_field("street_name", "text", false)]);
+        let code = gen(&c);
+        assert!(code.contains("pub street_name: String"));
+        assert!(!code.contains("sqlx(rename"));
+    }
+
+    // --- types ---
+
+    #[test]
+    fn test_int4_field() {
+        let c = make_composite("data", vec![make_field("count", "int4", false)]);
+        let code = gen(&c);
+        assert!(code.contains("pub count: i32"));
+    }
+
+    #[test]
+    fn test_uuid_field_import() {
+        let c = make_composite("data", vec![make_field("id", "uuid", false)]);
+        let (_, imports) = gen_with(&c, &[], &HashMap::new());
+        assert!(imports.iter().any(|i| i.contains("uuid::Uuid")));
+    }
+
+    #[test]
+    fn test_text_field() {
+        let c = make_composite("data", vec![make_field("label", "text", false)]);
+        let code = gen(&c);
+        assert!(code.contains("pub label: String"));
+    }
+
+    // --- derives ---
+
+    #[test]
+    fn test_default_derives() {
+        let c = make_composite("data", vec![make_field("x", "text", false)]);
+        let code = gen(&c);
+        assert!(code.contains("Debug"));
+        assert!(code.contains("Clone"));
+        assert!(code.contains("sqlx::Type") || code.contains("sqlx :: Type"));
+    }
+
+    #[test]
+    fn test_extra_derive() {
+        let c = make_composite("data", vec![make_field("x", "text", false)]);
+        let derives = vec!["Serialize".to_string()];
+        let (code, _) = gen_with(&c, &derives, &HashMap::new());
+        assert!(code.contains("Serialize"));
+    }
+
+    // --- overrides ---
+
+    #[test]
+    fn test_type_override() {
+        let c = make_composite("data", vec![make_field("payload", "jsonb", false)]);
+        let mut overrides = HashMap::new();
+        overrides.insert("jsonb".to_string(), "MyJson".to_string());
+        let (code, _) = gen_with(&c, &[], &overrides);
+        assert!(code.contains("pub payload: MyJson"));
+    }
+}

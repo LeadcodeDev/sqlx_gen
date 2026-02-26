@@ -15,6 +15,7 @@ pub fn generate_struct(
     schema_info: &SchemaInfo,
     extra_derives: &[String],
     type_overrides: &HashMap<String, String>,
+    is_view: bool,
 ) -> (TokenStream, BTreeSet<String>) {
     let mut imports = BTreeSet::new();
     for imp in imports_for_derives(extra_derives) {
@@ -76,15 +77,27 @@ pub fn generate_struct(
                 quote! {}
             };
 
+            let pk_attr = if col.is_primary_key {
+                quote! { #[sqlx_gen(primary_key)] }
+            } else {
+                quote! {}
+            };
+
             quote! {
+                #pk_attr
                 #rename
                 pub #field_ident: #type_tokens,
             }
         })
         .collect();
 
+    let table_name_str = &table.name;
+    let kind_str = if is_view { "view" } else { "table" };
+    let sqlx_gen_attr = quote! { #[sqlx_gen(kind = #kind_str, table = #table_name_str)] };
+
     let tokens = quote! {
         #[derive(#(#derive_tokens),*)]
+        #sqlx_gen_attr
         pub struct #struct_name {
             #(#fields)*
         }
@@ -137,6 +150,7 @@ mod tests {
             data_type: udt_name.to_string(),
             udt_name: udt_name.to_string(),
             is_nullable: nullable,
+            is_primary_key: false,
             ordinal_position: 0,
             schema_name: "public".to_string(),
         }
@@ -144,7 +158,7 @@ mod tests {
 
     fn gen(table: &TableInfo) -> String {
         let schema = SchemaInfo::default();
-        let (tokens, _) = generate_struct(table, DatabaseKind::Postgres, &schema, &[], &HashMap::new());
+        let (tokens, _) = generate_struct(table, DatabaseKind::Postgres, &schema, &[], &HashMap::new(), false);
         parse_and_format(&tokens)
     }
 
@@ -155,7 +169,7 @@ mod tests {
         derives: &[String],
         overrides: &HashMap<String, String>,
     ) -> (String, BTreeSet<String>) {
-        let (tokens, imports) = generate_struct(table, db, schema, derives, overrides);
+        let (tokens, imports) = generate_struct(table, db, schema, derives, overrides, false);
         (parse_and_format(&tokens), imports)
     }
 
@@ -349,6 +363,7 @@ mod tests {
             data_type: "enum".to_string(),
             udt_name: "enum('active','inactive')".to_string(),
             is_nullable: false,
+            is_primary_key: false,
             ordinal_position: 0,
             schema_name: "test_db".to_string(),
         }]);
@@ -365,6 +380,7 @@ mod tests {
             data_type: "enum".to_string(),
             udt_name: "enum('a','b')".to_string(),
             is_nullable: true,
+            is_primary_key: false,
             ordinal_position: 0,
             schema_name: "test_db".to_string(),
         }]);

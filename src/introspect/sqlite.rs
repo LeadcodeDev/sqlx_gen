@@ -70,13 +70,14 @@ async fn fetch_columns(pool: &SqlitePool, table_name: &str) -> Result<Vec<Column
 
     Ok(rows
         .into_iter()
-        .map(|(cid, name, declared_type, notnull, _default, _pk)| {
+        .map(|(cid, name, declared_type, notnull, _default, pk)| {
             let upper = declared_type.to_uppercase();
             ColumnInfo {
                 name,
                 data_type: upper.clone(),
                 udt_name: upper,
                 is_nullable: !notnull,
+                is_primary_key: pk > 0,
                 ordinal_position: cid,
                 schema_name: "main".to_string(),
             }

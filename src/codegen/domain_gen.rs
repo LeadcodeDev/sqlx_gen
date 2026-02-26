@@ -28,6 +28,7 @@ pub fn generate_domain(
         data_type: domain.base_type.clone(),
         udt_name: domain.base_type.clone(),
         is_nullable: false,
+        is_primary_key: false,
         ordinal_position: 0,
         schema_name: domain.schema_name.clone(),
     };
@@ -44,6 +45,7 @@ pub fn generate_domain(
 
     let tokens = quote! {
         #[doc = #doc]
+        #[sqlx_gen(kind = "domain")]
         pub type #alias_name = #type_tokens;
     };
 

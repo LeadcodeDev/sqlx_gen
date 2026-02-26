@@ -11,6 +11,7 @@ pub struct ColumnInfo {
     /// Underlying type name: udt_name (PG), column_type (MySQL), declared type (SQLite)
     pub udt_name: String,
     pub is_nullable: bool,
+    pub is_primary_key: bool,
     pub ordinal_position: i32,
     pub schema_name: String,
 }

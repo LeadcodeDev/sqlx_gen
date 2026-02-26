@@ -28,7 +28,7 @@ pub async fn introspect(
 }
 
 async fn fetch_tables(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo>> {
-    let rows = sqlx::query_as::<_, (String, String, String, String, String, String, i32)>(
+    let rows = sqlx::query_as::<_, (String, String, String, String, String, String, i32, bool)>(
         r#"
         SELECT
             c.table_schema,
@@ -37,12 +37,21 @@ async fn fetch_tables(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo
             c.data_type,
             COALESCE(c.udt_name, c.data_type) as udt_name,
             c.is_nullable,
-            c.ordinal_position
+            c.ordinal_position,
+            CASE WHEN kcu.column_name IS NOT NULL THEN true ELSE false END AS is_primary_key
         FROM information_schema.columns c
         JOIN information_schema.tables t
             ON t.table_schema = c.table_schema
             AND t.table_name = c.table_name
             AND t.table_type = 'BASE TABLE'
+        LEFT JOIN information_schema.table_constraints tc
+            ON tc.table_schema = c.table_schema
+            AND tc.table_name = c.table_name
+            AND tc.constraint_type = 'PRIMARY KEY'
+        LEFT JOIN information_schema.key_column_usage kcu
+            ON kcu.constraint_name = tc.constraint_name
+            AND kcu.constraint_schema = tc.constraint_schema
+            AND kcu.column_name = c.column_name
         WHERE c.table_schema = ANY($1)
         ORDER BY c.table_schema, c.table_name, c.ordinal_position
         "#,
@@ -54,7 +63,7 @@ async fn fetch_tables(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo
     let mut tables: Vec<TableInfo> = Vec::new();
     let mut current_key: Option<(String, String)> = None;
 
-    for (schema, table, col_name, data_type, udt_name, nullable, ordinal) in rows {
+    for (schema, table, col_name, data_type, udt_name, nullable, ordinal, is_pk) in rows {
         let key = (schema.clone(), table.clone());
         if current_key.as_ref() != Some(&key) {
             current_key = Some(key);
@@ -69,6 +78,7 @@ async fn fetch_tables(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo
             data_type,
             udt_name,
             is_nullable: nullable == "YES",
+            is_primary_key: is_pk,
             ordinal_position: ordinal,
             schema_name: schema,
         });
@@ -119,6 +129,7 @@ async fn fetch_views(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo>
             data_type,
             udt_name,
             is_nullable: nullable == "YES",
+            is_primary_key: false,
             ordinal_position: ordinal,
             schema_name: schema,
         });
@@ -213,6 +224,7 @@ async fn fetch_composite_types(
             data_type: field_type.clone(),
             udt_name: field_type,
             is_nullable: nullable == "YES",
+            is_primary_key: false,
             ordinal_position: ordinal,
             schema_name: schema,
         });

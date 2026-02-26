@@ -81,6 +81,7 @@ mod tests {
             data_type: data_type.to_string(),
             udt_name: udt_name.to_string(),
             is_nullable: nullable,
+            is_primary_key: false,
             ordinal_position: 0,
             schema_name: "public".to_string(),
         }

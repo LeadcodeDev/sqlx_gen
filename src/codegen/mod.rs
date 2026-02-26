@@ -1,5 +1,7 @@
 pub mod composite_gen;
+pub mod crud_gen;
 pub mod domain_gen;
+pub mod entity_parser;
 pub mod enum_gen;
 pub mod struct_gen;
 
@@ -82,7 +84,7 @@ pub fn generate(
     // Generate struct files for each table
     for table in &schema_info.tables {
         let (tokens, imports) =
-            struct_gen::generate_struct(table, db_kind, schema_info, extra_derives, type_overrides);
+            struct_gen::generate_struct(table, db_kind, schema_info, extra_derives, type_overrides, false);
         let imports = filter_imports(&imports, single_file);
         let code = format_tokens_with_imports(&tokens, &imports);
         let module_name = normalize_module_name(&table.name);
@@ -97,7 +99,7 @@ pub fn generate(
     // Generate struct files for each view
     for view in &schema_info.views {
         let (tokens, imports) =
-            struct_gen::generate_struct(view, db_kind, schema_info, extra_derives, type_overrides);
+            struct_gen::generate_struct(view, db_kind, schema_info, extra_derives, type_overrides, true);
         let imports = filter_imports(&imports, single_file);
         let code = format_tokens_with_imports(&tokens, &imports);
         let module_name = normalize_module_name(&view.name);
@@ -181,7 +183,7 @@ pub(crate) fn parse_and_format(tokens: &TokenStream) -> String {
         std::process::exit(1);
     });
     let raw = prettyplease::unparse(&file);
-    add_blank_lines_between_variants(&raw)
+    add_blank_lines_between_items(&raw)
 }
 
 /// Format a single TokenStream block (no imports).
@@ -189,7 +191,7 @@ pub(crate) fn format_tokens(tokens: &TokenStream) -> String {
     parse_and_format(tokens)
 }
 
-pub(crate) fn format_tokens_with_imports(tokens: &TokenStream, imports: &BTreeSet<String>) -> String {
+pub fn format_tokens_with_imports(tokens: &TokenStream, imports: &BTreeSet<String>) -> String {
     let import_lines: String = imports
         .iter()
         .map(|i| format!("{}\n", i))
@@ -204,9 +206,11 @@ pub(crate) fn format_tokens_with_imports(tokens: &TokenStream, imports: &BTreeSe
     }
 }
 
-/// Post-process formatted code to add blank lines between enum variants
-/// and between struct fields. prettyplease doesn't insert them.
-fn add_blank_lines_between_variants(code: &str) -> String {
+/// Post-process formatted code to:
+/// - Add blank lines between enum variants with `#[sqlx(rename`
+/// - Add blank lines between top-level items (structs, impls)
+/// - Add blank lines between logical blocks inside async methods
+fn add_blank_lines_between_items(code: &str) -> String {
     let lines: Vec<&str> = code.lines().collect();
     let mut result = Vec::with_capacity(lines.len());
 
@@ -219,6 +223,45 @@ fn add_blank_lines_between_variants(code: &str) -> String {
                 result.push("");
             }
         }
+
+        // Insert a blank line before top-level items (pub struct, impl, #[derive)
+        // and before methods inside impl blocks, when preceded by a closing brace `}`
+        if i > 0 {
+            let trimmed = line.trim();
+            let prev = lines[i - 1].trim();
+            if prev == "}"
+                && (trimmed.starts_with("pub struct")
+                    || trimmed.starts_with("impl ")
+                    || trimmed.starts_with("#[derive")
+                    || trimmed.starts_with("pub async fn")
+                    || trimmed.starts_with("pub fn"))
+            {
+                result.push("");
+            }
+        }
+
+        // Insert a blank line before a new logical block inside methods:
+        // - before `let` or `Ok(` when preceded by `.await?;` or `.unwrap_or(…);`
+        // - before `let … = sqlx::` when preceded by a simple `let … = …;` (not sqlx)
+        if i > 0 {
+            let trimmed = line.trim();
+            let prev = lines[i - 1].trim();
+            let prev_is_await_end = prev.ends_with(".await?;")
+                || prev.ends_with(".await?")
+                || (prev.ends_with(';') && prev.contains(".unwrap_or("));
+            if prev_is_await_end
+                && (trimmed.starts_with("let ") || trimmed.starts_with("Ok("))
+            {
+                result.push("");
+            }
+            // Separate a sqlx query `let` from preceding simple `let` assignments
+            if trimmed.starts_with("let ") && trimmed.contains("sqlx::")
+                && prev.starts_with("let ") && !prev.contains("sqlx::")
+            {
+                result.push("");
+            }
+        }
+
         result.push(line);
     }
 
@@ -393,19 +436,19 @@ mod tests {
         assert!(result[0].contains("Deserialize"));
     }
 
-    // ========== add_blank_lines_between_variants ==========
+    // ========== add_blank_lines_between_items ==========
 
     #[test]
     fn test_blank_lines_between_renamed_variants() {
         let input = "pub enum Foo {\n    #[sqlx(rename = \"a\")]\n    A,\n    #[sqlx(rename = \"b\")]\n    B,\n}";
-        let result = add_blank_lines_between_variants(input);
+        let result = add_blank_lines_between_items(input);
         assert!(result.contains("A,\n\n    #[sqlx(rename = \"b\")]"));
     }
 
     #[test]
     fn test_no_blank_line_for_first_variant() {
         let input = "pub enum Foo {\n    #[sqlx(rename = \"a\")]\n    A,\n}";
-        let result = add_blank_lines_between_variants(input);
+        let result = add_blank_lines_between_items(input);
         // No blank line before first #[sqlx(rename because previous line is `{`
         assert!(!result.contains("{\n\n"));
     }
@@ -413,14 +456,14 @@ mod tests {
     #[test]
     fn test_no_change_without_rename() {
         let input = "pub enum Foo {\n    A,\n    B,\n}";
-        let result = add_blank_lines_between_variants(input);
+        let result = add_blank_lines_between_items(input);
         assert_eq!(result, input);
     }
 
     #[test]
     fn test_no_change_for_struct() {
         let input = "pub struct Foo {\n    pub a: i32,\n    pub b: String,\n}";
-        let result = add_blank_lines_between_variants(input);
+        let result = add_blank_lines_between_items(input);
         assert_eq!(result, input);
     }
 
@@ -476,6 +519,7 @@ mod tests {
             data_type: udt_name.to_string(),
             udt_name: udt_name.to_string(),
             is_nullable: false,
+            is_primary_key: false,
             ordinal_position: 0,
             schema_name: "public".to_string(),
         }
@@ -760,6 +804,7 @@ mod tests {
                 data_type: "text".to_string(),
                 udt_name: "text".to_string(),
                 is_nullable: true,
+                is_primary_key: false,
                 ordinal_position: 0,
                 schema_name: "public".to_string(),
             }])],

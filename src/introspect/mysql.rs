@@ -37,7 +37,8 @@ async fn fetch_tables(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableI
             c.DATA_TYPE,
             c.COLUMN_TYPE,
             c.IS_NULLABLE,
-            c.ORDINAL_POSITION
+            c.ORDINAL_POSITION,
+            c.COLUMN_KEY
         FROM information_schema.COLUMNS c
         JOIN information_schema.TABLES t
             ON t.TABLE_SCHEMA = c.TABLE_SCHEMA
@@ -49,7 +50,7 @@ async fn fetch_tables(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableI
         placeholders.join(",")
     );
 
-    let mut q = sqlx::query_as::<_, (String, String, String, String, String, String, u32)>(&query);
+    let mut q = sqlx::query_as::<_, (String, String, String, String, String, String, u32, String)>(&query);
     for schema in schemas {
         q = q.bind(schema);
     }
@@ -58,7 +59,7 @@ async fn fetch_tables(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableI
     let mut tables: Vec<TableInfo> = Vec::new();
     let mut current_key: Option<(String, String)> = None;
 
-    for (schema, table, col_name, data_type, column_type, nullable, ordinal) in rows {
+    for (schema, table, col_name, data_type, column_type, nullable, ordinal, column_key) in rows {
         let key = (schema.clone(), table.clone());
         if current_key.as_ref() != Some(&key) {
             current_key = Some(key);
@@ -73,6 +74,7 @@ async fn fetch_tables(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableI
             data_type,
             udt_name: column_type,
             is_nullable: nullable == "YES",
+            is_primary_key: column_key == "PRI",
             ordinal_position: ordinal as i32,
             schema_name: schema,
         });
@@ -128,6 +130,7 @@ async fn fetch_views(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableIn
             data_type,
             udt_name: column_type,
             is_nullable: nullable == "YES",
+            is_primary_key: false,
             ordinal_position: ordinal as i32,
             schema_name: schema,
         });
@@ -194,6 +197,7 @@ mod tests {
             data_type: "varchar".to_string(),
             udt_name: udt_name.to_string(),
             is_nullable: false,
+            is_primary_key: false,
             ordinal_position: 0,
             schema_name: "test_db".to_string(),
         }

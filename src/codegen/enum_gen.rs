@@ -72,6 +72,7 @@ pub fn generate_enum(
     let tokens = quote! {
         #[doc = #doc]
         #[derive(#(#derive_tokens),*)]
+        #[sqlx_gen(kind = "enum")]
         #type_attr
         pub enum #enum_name {
             #(#variants)*

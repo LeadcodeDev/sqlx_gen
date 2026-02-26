@@ -144,7 +144,7 @@ async fn test_exclude_table() {
     exec(&pool, "CREATE TABLE users (id INTEGER NOT NULL)").await;
     exec(&pool, "CREATE TABLE _migrations (id INTEGER NOT NULL)").await;
     let mut schema = introspect(&pool, false).await.unwrap();
-    let exclude = vec!["_migrations".to_string()];
+    let exclude = ["_migrations".to_string()];
     schema.tables.retain(|t| !exclude.contains(&t.name));
     let files = codegen::generate(&schema, DatabaseKind::Sqlite, &[], &HashMap::new(), false);
     assert_eq!(files.len(), 1);
@@ -157,7 +157,7 @@ async fn test_exclude_nonexistent_table() {
     exec(&pool, "CREATE TABLE users (id INTEGER NOT NULL)").await;
     exec(&pool, "CREATE TABLE posts (id INTEGER NOT NULL)").await;
     let mut schema = introspect(&pool, false).await.unwrap();
-    let exclude = vec!["nonexistent".to_string()];
+    let exclude = ["nonexistent".to_string()];
     schema.tables.retain(|t| !exclude.contains(&t.name));
     assert_eq!(schema.tables.len(), 2);
 }
@@ -170,10 +170,10 @@ async fn test_tables_include_then_exclude() {
     exec(&pool, "CREATE TABLE comments (id INTEGER NOT NULL)").await;
     let mut schema = introspect(&pool, false).await.unwrap();
     // Simulate --tables users,posts
-    let include = vec!["users".to_string(), "posts".to_string()];
+    let include = ["users".to_string(), "posts".to_string()];
     schema.tables.retain(|t| include.contains(&t.name));
     // Simulate --exclude-tables posts
-    let exclude = vec!["posts".to_string()];
+    let exclude = ["posts".to_string()];
     schema.tables.retain(|t| !exclude.contains(&t.name));
     assert_eq!(schema.tables.len(), 1);
     assert_eq!(schema.tables[0].name, "users");
@@ -186,7 +186,7 @@ async fn test_exclude_view() {
     exec(&pool, "CREATE VIEW v1 AS SELECT id FROM users").await;
     exec(&pool, "CREATE VIEW v2 AS SELECT id FROM users").await;
     let mut schema = introspect(&pool, true).await.unwrap();
-    let exclude = vec!["v1".to_string()];
+    let exclude = ["v1".to_string()];
     schema.views.retain(|v| !exclude.contains(&v.name));
     let files = codegen::generate(&schema, DatabaseKind::Sqlite, &[], &HashMap::new(), false);
     let view_files: Vec<_> = files.iter().filter(|f| f.origin.as_ref().is_some_and(|o| o.starts_with("View:"))).collect();

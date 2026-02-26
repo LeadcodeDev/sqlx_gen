@@ -95,6 +95,7 @@ pub fn generate_composite(
     let tokens = quote! {
         #[doc = #doc]
         #[derive(#(#derive_tokens),*)]
+        #[sqlx_gen(kind = "composite")]
         #type_attr
         pub struct #struct_name {
             #(#fields)*
@@ -124,6 +125,7 @@ mod tests {
             data_type: udt_name.to_string(),
             udt_name: udt_name.to_string(),
             is_nullable: nullable,
+            is_primary_key: false,
             ordinal_position: 0,
             schema_name: "public".to_string(),
         }

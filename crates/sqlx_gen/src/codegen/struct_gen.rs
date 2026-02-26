@@ -149,6 +149,14 @@ fn detect_custom_sql_type(udt_name: &str, schema_info: &SchemaInfo) -> (Option<S
         return (Some(qualified), is_array);
     }
 
+    // Check if this is a non-builtin type that would hit the typemap fallback
+    // (e.g. range types like "timerange", "tsrange", etc.)
+    // Domains resolve to their base type, so they don't need marking.
+    let is_domain = schema_info.domains.iter().any(|d| d.name == base_name);
+    if !is_domain && !typemap::postgres::is_builtin(base_name) {
+        return (Some(base_name.to_string()), is_array);
+    }
+
     (None, false)
 }
 

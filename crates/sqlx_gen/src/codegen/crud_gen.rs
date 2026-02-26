@@ -365,10 +365,7 @@ pub fn generate_crud_from_parsed(
         let update_macro_args: Vec<TokenStream> = non_pk_fields
             .iter()
             .chain(pk_fields.iter())
-            .map(|f| {
-                let name = format_ident!("{}", f.rust_name);
-                quote! { params.#name }
-            })
+            .map(|f| macro_arg_for_field(f))
             .collect();
 
         let update_method = if use_macro {
@@ -586,6 +583,21 @@ fn build_where_clause_parsed(
         .join(" AND ")
 }
 
+fn macro_arg_for_field(field: &ParsedField) -> TokenStream {
+    let name = format_ident!("{}", field.rust_name);
+    let check_type = if field.is_nullable {
+        &field.inner_type
+    } else {
+        &field.rust_type
+    };
+    let normalized = check_type.replace(' ', "");
+    if normalized.starts_with("Vec<") {
+        quote! { params.#name.as_slice() }
+    } else {
+        quote! { params.#name }
+    }
+}
+
 fn build_where_clause_cast(
     pk_fields: &[&ParsedField],
     db_kind: DatabaseKind,
@@ -618,10 +630,7 @@ fn build_insert_method_parsed(
     if use_macro {
         let macro_args: Vec<TokenStream> = non_pk_fields
             .iter()
-            .map(|f| {
-                let name = format_ident!("{}", f.rust_name);
-                quote! { params.#name }
-            })
+            .map(|f| macro_arg_for_field(f))
             .collect();
 
         match db_kind {
@@ -1431,5 +1440,98 @@ mod tests {
         let code = parse_and_format(&tokens);
         // DELETE still uses query! macro
         assert!(code.contains("query!"));
+    }
+
+    // --- Vec<String> native array uses .as_slice() in macro mode ---
+
+    fn entity_with_vec_string() -> ParsedEntity {
+        ParsedEntity {
+            struct_name: "PromptHistory".to_string(),
+            table_name: "prompt_history".to_string(),
+            schema_name: None,
+            is_view: false,
+            fields: vec![
+                ParsedField {
+                    rust_name: "id".to_string(),
+                    column_name: "id".to_string(),
+                    rust_type: "Uuid".to_string(),
+                    inner_type: "Uuid".to_string(),
+                    is_nullable: false,
+                    is_primary_key: true,
+                    sql_type: None,
+                    is_sql_array: false,
+                },
+                ParsedField {
+                    rust_name: "content".to_string(),
+                    column_name: "content".to_string(),
+                    rust_type: "String".to_string(),
+                    inner_type: "String".to_string(),
+                    is_nullable: false,
+                    is_primary_key: false,
+                    sql_type: None,
+                    is_sql_array: false,
+                },
+                ParsedField {
+                    rust_name: "tags".to_string(),
+                    column_name: "tags".to_string(),
+                    rust_type: "Vec<String>".to_string(),
+                    inner_type: "Vec<String>".to_string(),
+                    is_nullable: false,
+                    is_primary_key: false,
+                    sql_type: None,
+                    is_sql_array: false,
+                },
+            ],
+            imports: vec!["use uuid::Uuid;".to_string()],
+        }
+    }
+
+    #[test]
+    fn test_vec_string_macro_insert_uses_as_slice() {
+        let skip = Methods::all();
+        let (tokens, _) = generate_crud_from_parsed(&entity_with_vec_string(), DatabaseKind::Postgres, "crate::models::prompt_history", &skip, true);
+        let code = parse_and_format(&tokens);
+        assert!(code.contains("as_slice()"));
+    }
+
+    #[test]
+    fn test_vec_string_macro_update_uses_as_slice() {
+        let skip = Methods::all();
+        let (tokens, _) = generate_crud_from_parsed(&entity_with_vec_string(), DatabaseKind::Postgres, "crate::models::prompt_history", &skip, true);
+        let code = parse_and_format(&tokens);
+        // Should have as_slice() for both insert and update
+        let count = code.matches("as_slice()").count();
+        assert!(count >= 2, "expected at least 2 as_slice() calls (insert + update), found {}", count);
+    }
+
+    #[test]
+    fn test_vec_string_non_macro_no_as_slice() {
+        let skip = Methods::all();
+        let (tokens, _) = generate_crud_from_parsed(&entity_with_vec_string(), DatabaseKind::Postgres, "crate::models::prompt_history", &skip, false);
+        let code = parse_and_format(&tokens);
+        // Runtime mode uses .bind() so no as_slice needed
+        assert!(!code.contains("as_slice()"));
+    }
+
+    #[test]
+    fn test_vec_string_parsed_from_source_uses_as_slice() {
+        use crate::codegen::entity_parser::parse_entity_source;
+        let source = r#"
+            use uuid::Uuid;
+
+            #[derive(Debug, Clone, sqlx::FromRow, SqlxGen)]
+            #[sqlx_gen(kind = "table", schema = "agent", table = "prompt_history")]
+            pub struct PromptHistory {
+                #[sqlx_gen(primary_key)]
+                pub id: Uuid,
+                pub content: String,
+                pub tags: Vec<String>,
+            }
+        "#;
+        let entity = parse_entity_source(source).unwrap();
+        let skip = Methods::all();
+        let (tokens, _) = generate_crud_from_parsed(&entity, DatabaseKind::Postgres, "crate::models::prompt_history", &skip, true);
+        let code = parse_and_format(&tokens);
+        assert!(code.contains("as_slice()"), "Expected as_slice() in generated code:\n{}", code);
     }
 }

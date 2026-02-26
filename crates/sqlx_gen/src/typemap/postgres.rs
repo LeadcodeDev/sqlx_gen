@@ -3,6 +3,32 @@ use heck::ToUpperCamelCase;
 use super::RustType;
 use crate::introspect::SchemaInfo;
 
+/// Returns true if the udt_name is a known PostgreSQL builtin type
+/// (i.e., not a fallback to String).
+pub fn is_builtin(udt_name: &str) -> bool {
+    matches!(
+        udt_name,
+        "bool"
+            | "int2" | "smallint" | "smallserial"
+            | "int4" | "int" | "integer" | "serial"
+            | "int8" | "bigint" | "bigserial"
+            | "float4" | "real"
+            | "float8" | "double precision"
+            | "numeric" | "decimal"
+            | "varchar" | "text" | "bpchar" | "char" | "name" | "citext"
+            | "bytea"
+            | "timestamp" | "timestamp without time zone"
+            | "timestamptz" | "timestamp with time zone"
+            | "date"
+            | "time" | "time without time zone"
+            | "timetz" | "time with time zone"
+            | "uuid"
+            | "json" | "jsonb"
+            | "inet" | "cidr"
+            | "oid"
+    )
+}
+
 pub fn map_type(udt_name: &str, schema_info: &SchemaInfo) -> RustType {
     // Handle array types (prefixed with '_' in PG)
     if let Some(inner) = udt_name.strip_prefix('_') {

@@ -28,6 +28,7 @@ pub fn generate_composite(
     );
 
     imports.insert("use serde::{Serialize, Deserialize};".to_string());
+    imports.insert("use sqlx_gen::SqlxGen;".to_string());
     let mut derive_tokens = vec![
         quote! { Debug },
         quote! { Clone },
@@ -36,6 +37,7 @@ pub fn generate_composite(
         quote! { Serialize },
         quote! { Deserialize },
         quote! { sqlx::Type },
+        quote! { SqlxGen },
     ];
     for d in extra_derives {
         let ident = format_ident!("{}", d);

@@ -1,0 +1,12 @@
+[package]
+name = "sqlx-gen-macros"
+version = "0.4.0"
+edition = "2021"
+description = "No-op attribute macros for sqlx-gen generated code"
+license = "MIT"
+repository = "https://github.com/LeadcodeDev/sqlx-gen"
+keywords = ["sqlx", "codegen", "macros"]
+categories = ["database", "development-tools"]
+
+[lib]
+proc-macro = true

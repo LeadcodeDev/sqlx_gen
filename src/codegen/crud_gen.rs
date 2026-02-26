@@ -21,10 +21,8 @@ pub fn generate_crud_from_parsed(
 
     let table_name = &entity.table_name;
 
-    // Pool type
+    // Pool type (used via full path sqlx::PgPool etc., no import needed)
     let pool_type = pool_type_tokens(db_kind);
-    let pool_import = pool_import_str(db_kind);
-    imports.insert(pool_import);
 
     // Entity import
     imports.insert(format!("use {}::{};", entity_module_path, entity.struct_name));
@@ -492,14 +490,6 @@ fn pool_type_tokens(db_kind: DatabaseKind) -> TokenStream {
         DatabaseKind::Postgres => quote! { sqlx::PgPool },
         DatabaseKind::Mysql => quote! { sqlx::MySqlPool },
         DatabaseKind::Sqlite => quote! { sqlx::SqlitePool },
-    }
-}
-
-fn pool_import_str(db_kind: DatabaseKind) -> String {
-    match db_kind {
-        DatabaseKind::Postgres => "use sqlx::PgPool;".to_string(),
-        DatabaseKind::Mysql => "use sqlx::MySqlPool;".to_string(),
-        DatabaseKind::Sqlite => "use sqlx::SqlitePool;".to_string(),
     }
 }
 
@@ -1033,10 +1023,10 @@ mod tests {
     // --- imports ---
 
     #[test]
-    fn test_imports_contain_pool() {
+    fn test_no_pool_import() {
         let skip = Methods::all();
         let (_, imports) = generate_crud_from_parsed(&standard_entity(), DatabaseKind::Postgres, "crate::models::users", &skip, false);
-        assert!(imports.iter().any(|i| i.contains("PgPool")));
+        assert!(!imports.iter().any(|i| i.contains("PgPool")));
     }
 
     #[test]

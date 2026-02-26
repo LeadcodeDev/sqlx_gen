@@ -15,7 +15,7 @@ pub struct ParsedField {
     pub is_nullable: bool,
     /// The inner type if nullable, or the full type if not
     pub inner_type: String,
-    /// Whether this field is a primary key (#[sqlx_gen(primary_key)])
+    /// Whether this field is a primary key (`#[sqlx_gen(primary_key)]`)
     pub is_primary_key: bool,
 }
 

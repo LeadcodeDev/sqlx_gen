@@ -43,9 +43,10 @@ pub fn generate_domain(
         quote! { #fallback }
     });
 
+    let domain_doc = "sqlx_gen:kind=domain";
     let tokens = quote! {
         #[doc = #doc]
-        #[sqlx_gen(kind = "domain")]
+        #[doc = #domain_doc]
         pub type #alias_name = #type_tokens;
     };
 

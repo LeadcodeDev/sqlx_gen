@@ -1,4 +1,5 @@
 use clap::Parser;
+use log::{info, warn};
 use sqlx::{MySqlPool, PgPool, SqlitePool};
 
 use sqlx_gen::cli::{Cli, Command, CrudArgs, DatabaseKind, EntitiesArgs, GenerateCommand, Methods};
@@ -9,6 +10,11 @@ use sqlx_gen::writer;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("info"),
+    )
+    .init();
+
     let cli = Cli::parse();
     match cli.command {
         Command::Generate { subcommand } => match subcommand {
@@ -23,7 +29,7 @@ async fn run_entities(args: EntitiesArgs) -> Result<()> {
     let db_kind = args.db.database_kind()?;
     let type_overrides = args.parse_type_overrides();
 
-    eprintln!(
+    info!(
         "Connecting to {} database...",
         match db_kind {
             DatabaseKind::Postgres => "PostgreSQL",
@@ -69,7 +75,7 @@ async fn run_entities(args: EntitiesArgs) -> Result<()> {
     let table_count = schema_info.tables.len();
     let view_count = schema_info.views.len();
     let enum_count = schema_info.enums.len();
-    eprintln!(
+    info!(
         "Found {} tables, {} views, {} enums, {} composite types, {} domains",
         table_count,
         view_count,
@@ -89,7 +95,7 @@ async fn run_entities(args: EntitiesArgs) -> Result<()> {
     writer::write_files(&files, &args.output_dir, args.single_file, args.dry_run)?;
 
     if !args.dry_run {
-        eprintln!("Done! Generated {} files.", files.len() + 1); // +1 for mod.rs
+        info!("Done! Generated {} files.", files.len() + 1); // +1 for mod.rs
         rustfmt_dir(&args.output_dir);
     }
 
@@ -110,13 +116,13 @@ fn run_crud(args: CrudArgs) -> Result<()> {
 
     let entity = codegen::entity_parser::parse_entity_file(&args.entity_file)?;
 
-    eprintln!(
+    info!(
         "Parsed entity '{}' from {}",
         entity.struct_name,
         args.entity_file.display()
     );
     if entity.is_view {
-        eprintln!("  (detected as view - write methods will be skipped)");
+        info!("  (detected as view - write methods will be skipped)");
     }
 
     if args.methods.is_empty() {
@@ -150,7 +156,7 @@ fn run_crud(args: CrudArgs) -> Result<()> {
             code
         );
         std::fs::write(&file_path, &content)?;
-        eprintln!("Wrote {}", file_path.display());
+        info!("Wrote {}", file_path.display());
         let edition = detect_edition(&args.output_dir);
         rustfmt_file(&file_path, &edition);
 
@@ -177,10 +183,10 @@ fn update_mod_rs(dir: &std::path::Path, mod_name: &str) -> Result<()> {
         new_content.push_str(&mod_line);
         new_content.push('\n');
         std::fs::write(&mod_path, new_content)?;
-        eprintln!("Updated {}", mod_path.display());
+        info!("Updated {}", mod_path.display());
     } else {
         std::fs::write(&mod_path, format!("{}\n", mod_line))?;
-        eprintln!("Created {}", mod_path.display());
+        info!("Created {}", mod_path.display());
     }
 
     Ok(())
@@ -208,8 +214,8 @@ fn rustfmt_file(path: &std::path::Path, edition: &str) {
         .status()
     {
         Ok(status) if status.success() => {}
-        Ok(status) => eprintln!("Warning: rustfmt exited with {}", status),
-        Err(_) => eprintln!("Warning: rustfmt not found, skipping formatting"),
+        Ok(status) => warn!("rustfmt exited with {}", status),
+        Err(_) => warn!("rustfmt not found, skipping formatting"),
     }
 }
 

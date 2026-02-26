@@ -22,6 +22,7 @@ pub fn generate_enum(
     let doc = format!("Enum: {}.{}", enum_info.schema_name, enum_info.name);
 
     imports.insert("use serde::{Serialize, Deserialize};".to_string());
+    imports.insert("use sqlx_gen::SqlxGen;".to_string());
     let mut derive_tokens = vec![
         quote! { Debug },
         quote! { Clone },
@@ -30,6 +31,7 @@ pub fn generate_enum(
         quote! { Serialize },
         quote! { Deserialize },
         quote! { sqlx::Type },
+        quote! { SqlxGen },
     ];
     for d in extra_derives {
         let ident = format_ident!("{}", d);

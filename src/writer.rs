@@ -57,7 +57,7 @@ fn write_single_file(files: &[GeneratedFile], output_dir: &Path) -> Result<()> {
 
     let path = output_dir.join("models.rs");
     std::fs::write(&path, &content)?;
-    eprintln!("Wrote {}", path.display());
+    log::info!("Wrote {}", path.display());
 
     Ok(())
 }
@@ -69,7 +69,7 @@ fn write_multi_files(files: &[GeneratedFile], output_dir: &Path) -> Result<()> {
         let content = build_file_content(f);
         let path = output_dir.join(&f.filename);
         std::fs::write(&path, &content)?;
-        eprintln!("Wrote {}", path.display());
+        log::info!("Wrote {}", path.display());
 
         let mod_name = f.filename.strip_suffix(".rs").unwrap_or(&f.filename);
         mod_entries.push(mod_name.to_string());
@@ -84,7 +84,7 @@ fn write_multi_files(files: &[GeneratedFile], output_dir: &Path) -> Result<()> {
 
     let mod_path = output_dir.join("mod.rs");
     std::fs::write(&mod_path, &mod_content)?;
-    eprintln!("Wrote {}", mod_path.display());
+    log::info!("Wrote {}", mod_path.display());
 
     Ok(())
 }

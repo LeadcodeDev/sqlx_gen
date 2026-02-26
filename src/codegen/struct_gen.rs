@@ -25,6 +25,7 @@ pub fn generate_struct(
 
     // Build derive list
     imports.insert("use serde::{Serialize, Deserialize};".to_string());
+    imports.insert("use sqlx_gen::SqlxGen;".to_string());
     let mut derive_tokens = vec![
         quote! { Debug },
         quote! { Clone },
@@ -33,6 +34,7 @@ pub fn generate_struct(
         quote! { Serialize },
         quote! { Deserialize },
         quote! { sqlx::FromRow },
+        quote! { SqlxGen },
     ];
     for d in extra_derives {
         let ident = format_ident!("{}", d);
@@ -93,11 +95,10 @@ pub fn generate_struct(
 
     let table_name_str = &table.name;
     let kind_str = if is_view { "view" } else { "table" };
-    let sqlx_gen_attr = quote! { #[sqlx_gen(kind = #kind_str, table = #table_name_str)] };
 
     let tokens = quote! {
         #[derive(#(#derive_tokens),*)]
-        #sqlx_gen_attr
+        #[sqlx_gen(kind = #kind_str, table = #table_name_str)]
         pub struct #struct_name {
             #(#fields)*
         }
@@ -338,8 +339,9 @@ mod tests {
         let table = make_table("users", vec![make_col("id", "int4", false)]);
         let schema = SchemaInfo::default();
         let (_, imports) = gen_with(&table, &schema, DatabaseKind::Postgres, &[], &HashMap::new());
-        assert_eq!(imports.len(), 1);
+        assert_eq!(imports.len(), 2);
         assert!(imports.iter().any(|i| i.contains("serde")));
+        assert!(imports.iter().any(|i| i.contains("sqlx_gen::SqlxGen")));
     }
 
     #[test]

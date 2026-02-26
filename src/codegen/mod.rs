@@ -178,8 +178,8 @@ fn filter_imports(imports: &BTreeSet<String>, single_file: bool) -> BTreeSet<Str
 /// Parse and format a TokenStream via prettyplease, then post-process spacing.
 pub(crate) fn parse_and_format(tokens: &TokenStream) -> String {
     let file = syn::parse2::<syn::File>(tokens.clone()).unwrap_or_else(|e| {
-        eprintln!("ERROR: failed to parse generated code: {}", e);
-        eprintln!("  This is a bug in sqlx-gen. Raw tokens:\n  {}", tokens);
+        log::error!("Failed to parse generated code: {}", e);
+        log::error!("This is a bug in sqlx-gen. Raw tokens:\n  {}", tokens);
         std::process::exit(1);
     });
     let raw = prettyplease::unparse(&file);
@@ -192,18 +192,55 @@ pub(crate) fn format_tokens(tokens: &TokenStream) -> String {
 }
 
 pub fn format_tokens_with_imports(tokens: &TokenStream, imports: &BTreeSet<String>) -> String {
-    let import_lines: String = imports
-        .iter()
-        .map(|i| format!("{}\n", i))
-        .collect();
-
     let formatted = parse_and_format(tokens);
 
-    if import_lines.is_empty() {
+    let used_imports: Vec<&String> = imports
+        .iter()
+        .filter(|imp| is_import_used(imp, &formatted))
+        .collect();
+
+    if used_imports.is_empty() {
         formatted
     } else {
+        let import_lines: String = used_imports
+            .iter()
+            .map(|i| format!("{}\n", i))
+            .collect();
         format!("{}\n\n{}", import_lines.trim_end(), formatted)
     }
+}
+
+/// Check if an import is actually used in the generated code.
+/// Extracts the imported type names and checks if they appear in the code.
+fn is_import_used(import: &str, code: &str) -> bool {
+    // "use foo::bar::Baz;" → check for "Baz"
+    // "use foo::{A, B};" → check for "A" or "B"
+    // "use foo::bar::*;" → always keep
+    let trimmed = import.trim().trim_end_matches(';');
+    let path = trimmed.strip_prefix("use ").unwrap_or(trimmed);
+
+    if path.ends_with("::*") {
+        return true;
+    }
+
+    // Handle grouped imports: use foo::{A, B, C};
+    if let Some(start) = path.find('{') {
+        if let Some(end) = path.find('}') {
+            let names = &path[start + 1..end];
+            return names
+                .split(',')
+                .map(|n| n.trim())
+                .filter(|n| !n.is_empty())
+                .any(|name| code.contains(name));
+        }
+    }
+
+    // Simple import: use foo::Bar;
+    if let Some(name) = path.rsplit("::").next() {
+        return code.contains(name);
+    }
+
+    true
 }
 
 /// Post-process formatted code to:

@@ -79,14 +79,25 @@ pub fn generate_struct(
                 quote! {}
             };
 
-            let pk_attr = if col.is_primary_key {
-                quote! { #[sqlx_gen(primary_key)] }
+            // Build #[sqlx_gen(...)] attribute with optional primary_key, sql_type, is_array
+            let (sql_type, is_sql_array) = detect_custom_sql_type(&col.udt_name, schema_info);
+            let has_pk = col.is_primary_key;
+            let has_sql_type = sql_type.is_some();
+
+            let sqlx_gen_attr = if has_pk || has_sql_type {
+                let pk_part = if has_pk { quote! { primary_key, } } else { quote! {} };
+                let sql_type_part = match &sql_type {
+                    Some(t) => quote! { sql_type = #t, },
+                    None => quote! {},
+                };
+                let array_part = if is_sql_array { quote! { is_array, } } else { quote! {} };
+                quote! { #[sqlx_gen(#pk_part #sql_type_part #array_part)] }
             } else {
                 quote! {}
             };
 
             quote! {
-                #pk_attr
+                #sqlx_gen_attr
                 #rename
                 pub #field_ident: #type_tokens,
             }
@@ -106,6 +117,39 @@ pub fn generate_struct(
     };
 
     (tokens, imports)
+}
+
+/// Detect if a column uses a custom SQL type (enum or composite) and return the qualified
+/// SQL type name for casting, plus whether it's an array.
+/// Returns `(Some("schema.type_name"), true)` for arrays of custom types,
+/// `(Some("type_name"), false)` for scalar custom types, or `(None, false)` for built-in types.
+fn detect_custom_sql_type(udt_name: &str, schema_info: &SchemaInfo) -> (Option<String>, bool) {
+    let (base_name, is_array) = match udt_name.strip_prefix('_') {
+        Some(inner) => (inner, true),
+        None => (udt_name, false),
+    };
+
+    // Check enums
+    if let Some(e) = schema_info.enums.iter().find(|e| e.name == base_name) {
+        let qualified = if e.schema_name == "public" {
+            base_name.to_string()
+        } else {
+            format!("{}.{}", e.schema_name, base_name)
+        };
+        return (Some(qualified), is_array);
+    }
+
+    // Check composite types
+    if let Some(c) = schema_info.composite_types.iter().find(|c| c.name == base_name) {
+        let qualified = if c.schema_name == "public" {
+            base_name.to_string()
+        } else {
+            format!("{}.{}", c.schema_name, base_name)
+        };
+        return (Some(qualified), is_array);
+    }
+
+    (None, false)
 }
 
 fn resolve_column_type(

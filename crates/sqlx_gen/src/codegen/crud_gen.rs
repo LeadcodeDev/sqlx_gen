@@ -24,12 +24,28 @@ pub fn generate_crud_from_parsed(
     // Pool type (used via full path sqlx::PgPool etc., no import needed)
     let pool_type = pool_type_tokens(db_kind);
 
+    // When the entity has custom SQL array types (e.g. Vec<ConnectorUsages> from connector_usages[]),
+    // query_as! macro can't resolve the column type at compile time. Fall back to runtime query_as::<_, T>()
+    // for queries that return rows. DELETE (no rows returned) can still use macro.
+    let has_sql_array = entity.fields.iter().any(|f| f.is_sql_array);
+    let use_macro = query_macro && !has_sql_array;
+
     // Entity import
     imports.insert(format!("use {}::{};", entity_module_path, entity.struct_name));
 
     // Forward type imports from the entity file (chrono, uuid, etc.)
+    // Rewrite `use super::X` imports to absolute paths based on entity_module_path,
+    // since the repository lives in a different module where `super` has a different meaning.
+    let entity_parent = entity_module_path
+        .rsplit_once("::")
+        .map(|(parent, _)| parent)
+        .unwrap_or(entity_module_path);
     for imp in &entity.imports {
-        imports.insert(imp.clone());
+        if let Some(rest) = imp.strip_prefix("use super::") {
+            imports.insert(format!("use {}::{}", entity_parent, rest));
+        } else {
+            imports.insert(imp.clone());
+        }
     }
 
     // Primary key fields
@@ -47,7 +63,7 @@ pub fn generate_crud_from_parsed(
     // --- get_all ---
     if methods.get_all {
         let sql = format!("SELECT * FROM {}", table_name);
-        let method = if query_macro {
+        let method = if use_macro {
             quote! {
                 pub async fn get_all(&self) -> Result<Vec<#entity_ident>, sqlx::Error> {
                     sqlx::query_as!(#entity_ident, #sql)
@@ -77,7 +93,7 @@ pub fn generate_crud_from_parsed(
             DatabaseKind::Postgres => format!("SELECT * FROM {} LIMIT $1 OFFSET $2", table_name),
             DatabaseKind::Mysql | DatabaseKind::Sqlite => format!("SELECT * FROM {} LIMIT ? OFFSET ?", table_name),
         };
-        let method = if query_macro {
+        let method = if use_macro {
             quote! {
                 pub async fn paginate(&self, params: &#paginate_params_ident) -> Result<#paginated_ident, sqlx::Error> {
                     let total: i64 = sqlx::query_scalar!(#count_sql)
@@ -170,7 +186,9 @@ pub fn generate_crud_from_parsed(
             .collect();
 
         let where_clause = build_where_clause_parsed(&pk_fields, db_kind, 1);
+        let where_clause_cast = build_where_clause_cast(&pk_fields, db_kind, 1);
         let sql = format!("SELECT * FROM {} WHERE {}", table_name, where_clause);
+        let sql_macro = format!("SELECT * FROM {} WHERE {}", table_name, where_clause_cast);
 
         let binds: Vec<TokenStream> = pk_fields
             .iter()
@@ -180,7 +198,7 @@ pub fn generate_crud_from_parsed(
             })
             .collect();
 
-        let method = if query_macro {
+        let method = if use_macro {
             let pk_arg_names: Vec<TokenStream> = pk_fields
                 .iter()
                 .map(|f| {
@@ -190,7 +208,7 @@ pub fn generate_crud_from_parsed(
                 .collect();
             quote! {
                 pub async fn get(&self, #(#pk_params),*) -> Result<Option<#entity_ident>, sqlx::Error> {
-                    sqlx::query_as!(#entity_ident, #sql, #(#pk_arg_names),*)
+                    sqlx::query_as!(#entity_ident, #sql_macro, #(#pk_arg_names),*)
                         .fetch_optional(&self.pool)
                         .await
                 }
@@ -223,22 +241,26 @@ pub fn generate_crud_from_parsed(
 
         let col_names: Vec<&str> = non_pk_fields.iter().map(|f| f.column_name.as_str()).collect();
         let col_list = col_names.join(", ");
+        // Use casted placeholders for macro mode, plain for runtime
         let placeholders = build_placeholders(non_pk_fields.len(), db_kind, 1);
+        let placeholders_cast = build_placeholders_with_cast(&non_pk_fields, db_kind, 1, true);
 
-        let sql = match db_kind {
+        let build_insert_sql = |ph: &str| match db_kind {
             DatabaseKind::Postgres | DatabaseKind::Sqlite => {
                 format!(
                     "INSERT INTO {} ({}) VALUES ({}) RETURNING *",
-                    table_name, col_list, placeholders
+                    table_name, col_list, ph
                 )
             }
             DatabaseKind::Mysql => {
                 format!(
                     "INSERT INTO {} ({}) VALUES ({})",
-                    table_name, col_list, placeholders
+                    table_name, col_list, ph
                 )
             }
         };
+        let sql = build_insert_sql(&placeholders);
+        let sql_macro = build_insert_sql(&placeholders_cast);
 
         let binds: Vec<TokenStream> = non_pk_fields
             .iter()
@@ -252,12 +274,13 @@ pub fn generate_crud_from_parsed(
             &entity_ident,
             &insert_params_ident,
             &sql,
+            &sql_macro,
             &binds,
             db_kind,
             table_name,
             &pk_fields,
             &non_pk_fields,
-            query_macro,
+            use_macro,
         );
         method_tokens.push(insert_method);
 
@@ -293,23 +316,37 @@ pub fn generate_crud_from_parsed(
             .collect();
         let set_clause = set_cols.join(", ");
 
+        // SET clause with casts for macro mode
+        let set_cols_cast: Vec<String> = non_pk_fields
+            .iter()
+            .enumerate()
+            .map(|(i, f)| {
+                let p = placeholder_with_cast(db_kind, i + 1, f);
+                format!("{} = {}", f.column_name, p)
+            })
+            .collect();
+        let set_clause_cast = set_cols_cast.join(", ");
+
         let pk_start = non_pk_fields.len() + 1;
         let where_clause = build_where_clause_parsed(&pk_fields, db_kind, pk_start);
+        let where_clause_cast = build_where_clause_cast(&pk_fields, db_kind, pk_start);
 
-        let sql = match db_kind {
+        let build_update_sql = |sc: &str, wc: &str| match db_kind {
             DatabaseKind::Postgres | DatabaseKind::Sqlite => {
                 format!(
                     "UPDATE {} SET {} WHERE {} RETURNING *",
-                    table_name, set_clause, where_clause
+                    table_name, sc, wc
                 )
             }
             DatabaseKind::Mysql => {
                 format!(
                     "UPDATE {} SET {} WHERE {}",
-                    table_name, set_clause, where_clause
+                    table_name, sc, wc
                 )
             }
         };
+        let sql = build_update_sql(&set_clause, &where_clause);
+        let sql_macro = build_update_sql(&set_clause_cast, &where_clause_cast);
 
         // Bind non-PK first, then PK
         let mut all_binds: Vec<TokenStream> = non_pk_fields
@@ -334,12 +371,12 @@ pub fn generate_crud_from_parsed(
             })
             .collect();
 
-        let update_method = if query_macro {
+        let update_method = if use_macro {
             match db_kind {
                 DatabaseKind::Postgres | DatabaseKind::Sqlite => {
                     quote! {
                         pub async fn update(&self, params: &#update_params_ident) -> Result<#entity_ident, sqlx::Error> {
-                            sqlx::query_as!(#entity_ident, #sql, #(#update_macro_args),*)
+                            sqlx::query_as!(#entity_ident, #sql_macro, #(#update_macro_args),*)
                                 .fetch_one(&self.pool)
                                 .await
                         }
@@ -357,7 +394,7 @@ pub fn generate_crud_from_parsed(
                         .collect();
                     quote! {
                         pub async fn update(&self, params: &#update_params_ident) -> Result<#entity_ident, sqlx::Error> {
-                            sqlx::query!(#sql, #(#update_macro_args),*)
+                            sqlx::query!(#sql_macro, #(#update_macro_args),*)
                                 .execute(&self.pool)
                                 .await?;
                             sqlx::query_as!(#entity_ident, #select_sql, #(#pk_macro_args),*)
@@ -426,7 +463,9 @@ pub fn generate_crud_from_parsed(
             .collect();
 
         let where_clause = build_where_clause_parsed(&pk_fields, db_kind, 1);
+        let where_clause_cast = build_where_clause_cast(&pk_fields, db_kind, 1);
         let sql = format!("DELETE FROM {} WHERE {}", table_name, where_clause);
+        let sql_macro = format!("DELETE FROM {} WHERE {}", table_name, where_clause_cast);
 
         let binds: Vec<TokenStream> = pk_fields
             .iter()
@@ -446,7 +485,7 @@ pub fn generate_crud_from_parsed(
                 .collect();
             quote! {
                 pub async fn delete(&self, #(#pk_params),*) -> Result<(), sqlx::Error> {
-                    sqlx::query!(#sql, #(#pk_arg_names),*)
+                    sqlx::query!(#sql_macro, #(#pk_arg_names),*)
                         .execute(&self.pool)
                         .await?;
                     Ok(())
@@ -500,9 +539,33 @@ fn placeholder(db_kind: DatabaseKind, index: usize) -> String {
     }
 }
 
+fn placeholder_with_cast(db_kind: DatabaseKind, index: usize, field: &ParsedField) -> String {
+    let base = placeholder(db_kind, index);
+    match (&field.sql_type, field.is_sql_array) {
+        (Some(t), true) => format!("{} as {}[]", base, t),
+        (Some(t), false) => format!("{} as {}", base, t),
+        (None, _) => base,
+    }
+}
+
 fn build_placeholders(count: usize, db_kind: DatabaseKind, start: usize) -> String {
     (0..count)
         .map(|i| placeholder(db_kind, start + i))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn build_placeholders_with_cast(fields: &[&ParsedField], db_kind: DatabaseKind, start: usize, use_cast: bool) -> String {
+    fields
+        .iter()
+        .enumerate()
+        .map(|(i, f)| {
+            if use_cast {
+                placeholder_with_cast(db_kind, start + i, f)
+            } else {
+                placeholder(db_kind, start + i)
+            }
+        })
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -523,19 +586,36 @@ fn build_where_clause_parsed(
         .join(" AND ")
 }
 
+fn build_where_clause_cast(
+    pk_fields: &[&ParsedField],
+    db_kind: DatabaseKind,
+    start_index: usize,
+) -> String {
+    pk_fields
+        .iter()
+        .enumerate()
+        .map(|(i, f)| {
+            let p = placeholder_with_cast(db_kind, start_index + i, f);
+            format!("{} = {}", f.column_name, p)
+        })
+        .collect::<Vec<_>>()
+        .join(" AND ")
+}
+
 #[allow(clippy::too_many_arguments)]
 fn build_insert_method_parsed(
     entity_ident: &proc_macro2::Ident,
     insert_params_ident: &proc_macro2::Ident,
     sql: &str,
+    sql_macro: &str,
     binds: &[TokenStream],
     db_kind: DatabaseKind,
     table_name: &str,
     pk_fields: &[&ParsedField],
     non_pk_fields: &[&ParsedField],
-    query_macro: bool,
+    use_macro: bool,
 ) -> TokenStream {
-    if query_macro {
+    if use_macro {
         let macro_args: Vec<TokenStream> = non_pk_fields
             .iter()
             .map(|f| {
@@ -548,7 +628,7 @@ fn build_insert_method_parsed(
             DatabaseKind::Postgres | DatabaseKind::Sqlite => {
                 quote! {
                     pub async fn insert(&self, params: &#insert_params_ident) -> Result<#entity_ident, sqlx::Error> {
-                        sqlx::query_as!(#entity_ident, #sql, #(#macro_args),*)
+                        sqlx::query_as!(#entity_ident, #sql_macro, #(#macro_args),*)
                             .fetch_one(&self.pool)
                             .await
                     }
@@ -559,7 +639,7 @@ fn build_insert_method_parsed(
                 let select_sql = format!("SELECT * FROM {} WHERE {}", table_name, pk_where);
                 quote! {
                     pub async fn insert(&self, params: &#insert_params_ident) -> Result<#entity_ident, sqlx::Error> {
-                        sqlx::query!(#sql, #(#macro_args),*)
+                        sqlx::query!(#sql_macro, #(#macro_args),*)
                             .execute(&self.pool)
                             .await?;
                         let id = sqlx::query_scalar!("SELECT LAST_INSERT_ID() as id")
@@ -631,6 +711,8 @@ mod tests {
             is_nullable: nullable,
             inner_type,
             is_primary_key: is_pk,
+            sql_type: None,
+            is_sql_array: false,
         }
     }
 
@@ -1204,5 +1286,97 @@ mod tests {
         assert!(code.contains(".bind("));
         assert!(!code.contains("query_as!("));
         assert!(!code.contains("query!("));
+    }
+
+    // --- sql_array fallback: macro mode + array field → runtime for SELECT, macro for DELETE ---
+
+    fn entity_with_sql_array() -> ParsedEntity {
+        ParsedEntity {
+            struct_name: "AgentConnector".to_string(),
+            table_name: "agent.agent_connector".to_string(),
+            schema_name: Some("agent".to_string()),
+            is_view: false,
+            fields: vec![
+                ParsedField {
+                    rust_name: "connector_id".to_string(),
+                    column_name: "connector_id".to_string(),
+                    rust_type: "Uuid".to_string(),
+                    inner_type: "Uuid".to_string(),
+                    is_nullable: false,
+                    is_primary_key: true,
+                    sql_type: None,
+                    is_sql_array: false,
+                },
+                ParsedField {
+                    rust_name: "agent_id".to_string(),
+                    column_name: "agent_id".to_string(),
+                    rust_type: "Uuid".to_string(),
+                    inner_type: "Uuid".to_string(),
+                    is_nullable: false,
+                    is_primary_key: false,
+                    sql_type: None,
+                    is_sql_array: false,
+                },
+                ParsedField {
+                    rust_name: "usages".to_string(),
+                    column_name: "usages".to_string(),
+                    rust_type: "Vec<ConnectorUsages>".to_string(),
+                    inner_type: "Vec<ConnectorUsages>".to_string(),
+                    is_nullable: false,
+                    is_primary_key: false,
+                    sql_type: Some("agent.connector_usages".to_string()),
+                    is_sql_array: true,
+                },
+            ],
+            imports: vec!["use uuid::Uuid;".to_string()],
+        }
+    }
+
+    fn gen_macro_array(entity: &ParsedEntity, db: DatabaseKind) -> String {
+        let skip = Methods::all();
+        let (tokens, _) = generate_crud_from_parsed(entity, db, "crate::models::agent_connector", &skip, true);
+        parse_and_format(&tokens)
+    }
+
+    #[test]
+    fn test_sql_array_macro_get_all_uses_runtime() {
+        let code = gen_macro_array(&entity_with_sql_array(), DatabaseKind::Postgres);
+        // get_all should use runtime query_as, not macro
+        assert!(code.contains("query_as::<"));
+    }
+
+    #[test]
+    fn test_sql_array_macro_get_uses_runtime() {
+        let code = gen_macro_array(&entity_with_sql_array(), DatabaseKind::Postgres);
+        // get should use .bind( since it's runtime
+        assert!(code.contains(".bind("));
+    }
+
+    #[test]
+    fn test_sql_array_macro_insert_uses_runtime() {
+        let code = gen_macro_array(&entity_with_sql_array(), DatabaseKind::Postgres);
+        // insert RETURNING should use runtime query_as
+        assert!(code.contains("query_as::<_ , AgentConnector>") || code.contains("query_as::<_, AgentConnector>"));
+    }
+
+    #[test]
+    fn test_sql_array_macro_update_uses_runtime() {
+        let code = gen_macro_array(&entity_with_sql_array(), DatabaseKind::Postgres);
+        // update RETURNING should use runtime query_as
+        assert!(code.contains("query_as::<"));
+    }
+
+    #[test]
+    fn test_sql_array_macro_delete_still_uses_macro() {
+        let code = gen_macro_array(&entity_with_sql_array(), DatabaseKind::Postgres);
+        // delete uses query! macro (no rows returned, no array issue)
+        assert!(code.contains("query!"));
+    }
+
+    #[test]
+    fn test_sql_array_no_query_as_macro() {
+        let code = gen_macro_array(&entity_with_sql_array(), DatabaseKind::Postgres);
+        // Should NOT contain query_as! macro (only query_as::<_ for runtime)
+        assert!(!code.contains("query_as!("));
     }
 }

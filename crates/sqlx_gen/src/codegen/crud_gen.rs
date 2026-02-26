@@ -638,6 +638,7 @@ mod tests {
         ParsedEntity {
             struct_name: "Users".to_string(),
             table_name: "users".to_string(),
+            schema_name: None,
             is_view: false,
             fields: vec![
                 make_field("id", "id", "i32", false, true),
@@ -1043,6 +1044,7 @@ mod tests {
         let entity = ParsedEntity {
             struct_name: "Connector".to_string(),
             table_name: "connector".to_string(),
+            schema_name: None,
             is_view: false,
             fields: vec![
                 make_field("id", "id", "i32", false, true),
@@ -1064,6 +1066,7 @@ mod tests {
         let entity = ParsedEntity {
             struct_name: "Logs".to_string(),
             table_name: "logs".to_string(),
+            schema_name: None,
             is_view: false,
             fields: vec![
                 make_field("message", "message", "String", false, false),
@@ -1082,6 +1085,7 @@ mod tests {
         let entity = ParsedEntity {
             struct_name: "Logs".to_string(),
             table_name: "logs".to_string(),
+            schema_name: None,
             is_view: false,
             fields: vec![
                 make_field("message", "message", "String", false, false),
@@ -1107,6 +1111,7 @@ mod tests {
         let entity = ParsedEntity {
             struct_name: "Users".to_string(),
             table_name: "users".to_string(),
+            schema_name: None,
             is_view: false,
             fields: vec![
                 make_field("id", "id", "Uuid", false, true),

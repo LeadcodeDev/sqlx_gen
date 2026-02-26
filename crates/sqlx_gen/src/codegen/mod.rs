@@ -62,6 +62,24 @@ pub fn normalize_module_name(name: &str) -> String {
     result
 }
 
+/// Well-known default schemas that don't need a prefix in filenames.
+const DEFAULT_SCHEMAS: &[&str] = &["public", "main", "dbo"];
+
+/// Returns true if the schema is a well-known default (public, main, dbo).
+pub fn is_default_schema(schema: &str) -> bool {
+    DEFAULT_SCHEMAS.contains(&schema)
+}
+
+/// Build a module name, prefixing with schema when there are multiple schemas
+/// and the schema is not a well-known default.
+pub fn build_module_name(schema_name: &str, table_name: &str, has_multiple_schemas: bool) -> String {
+    if !has_multiple_schemas || DEFAULT_SCHEMAS.contains(&schema_name) {
+        normalize_module_name(table_name)
+    } else {
+        normalize_module_name(&format!("{}_{}", schema_name, table_name))
+    }
+}
+
 /// A generated code file with its content and required imports.
 #[derive(Debug, Clone)]
 pub struct GeneratedFile {
@@ -81,13 +99,23 @@ pub fn generate(
 ) -> Vec<GeneratedFile> {
     let mut files = Vec::new();
 
+    // Detect if multiple schemas are present
+    let mut schemas = BTreeSet::new();
+    for t in &schema_info.tables {
+        schemas.insert(t.schema_name.as_str());
+    }
+    for v in &schema_info.views {
+        schemas.insert(v.schema_name.as_str());
+    }
+    let has_multiple_schemas = schemas.len() > 1;
+
     // Generate struct files for each table
     for table in &schema_info.tables {
         let (tokens, imports) =
             struct_gen::generate_struct(table, db_kind, schema_info, extra_derives, type_overrides, false);
         let imports = filter_imports(&imports, single_file);
         let code = format_tokens_with_imports(&tokens, &imports);
-        let module_name = normalize_module_name(&table.name);
+        let module_name = build_module_name(&table.schema_name, &table.name, has_multiple_schemas);
         let origin = format!("Table: {}.{}", table.schema_name, table.name);
         files.push(GeneratedFile {
             filename: format!("{}.rs", module_name),
@@ -102,7 +130,7 @@ pub fn generate(
             struct_gen::generate_struct(view, db_kind, schema_info, extra_derives, type_overrides, true);
         let imports = filter_imports(&imports, single_file);
         let code = format_tokens_with_imports(&tokens, &imports);
-        let module_name = normalize_module_name(&view.name);
+        let module_name = build_module_name(&view.schema_name, &view.name, has_multiple_schemas);
         let origin = format!("View: {}.{}", view.schema_name, view.name);
         files.push(GeneratedFile {
             filename: format!("{}.rs", module_name),
@@ -415,6 +443,55 @@ mod tests {
     #[test]
     fn test_normalize_multiple_groups() {
         assert_eq!(normalize_module_name("a__b__c"), "a_b_c");
+    }
+
+    // ========== build_module_name ==========
+
+    #[test]
+    fn test_build_single_schema_no_prefix() {
+        assert_eq!(build_module_name("public", "users", false), "users");
+    }
+
+    #[test]
+    fn test_build_multi_schema_default_no_prefix() {
+        assert_eq!(build_module_name("public", "users", true), "users");
+    }
+
+    #[test]
+    fn test_build_multi_schema_non_default_prefixed() {
+        assert_eq!(build_module_name("billing", "users", true), "billing_users");
+    }
+
+    #[test]
+    fn test_build_multi_schema_dbo_no_prefix() {
+        assert_eq!(build_module_name("dbo", "users", true), "users");
+    }
+
+    #[test]
+    fn test_build_multi_schema_main_no_prefix() {
+        assert_eq!(build_module_name("main", "users", true), "users");
+    }
+
+    #[test]
+    fn test_build_normalizes_double_underscore() {
+        assert_eq!(build_module_name("billing", "agent__connector", true), "billing_agent_connector");
+    }
+
+    // ========== is_default_schema ==========
+
+    #[test]
+    fn test_default_schema_public() {
+        assert!(is_default_schema("public"));
+    }
+
+    #[test]
+    fn test_default_schema_main() {
+        assert!(is_default_schema("main"));
+    }
+
+    #[test]
+    fn test_non_default_schema() {
+        assert!(!is_default_schema("billing"));
     }
 
     // ========== imports_for_derives ==========
@@ -849,6 +926,39 @@ mod tests {
         };
         let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
         assert!(files[0].code.contains("Option<String>"));
+    }
+
+    #[test]
+    fn test_generate_multi_schema_prefixes_non_default() {
+        let schema = SchemaInfo {
+            tables: vec![
+                make_table("users", vec![make_col("id", "int4")]),
+                TableInfo {
+                    schema_name: "billing".to_string(),
+                    name: "users".to_string(),
+                    columns: vec![make_col("id", "int4")],
+                },
+            ],
+            ..Default::default()
+        };
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let filenames: Vec<_> = files.iter().map(|f| f.filename.as_str()).collect();
+        assert!(filenames.contains(&"users.rs"));
+        assert!(filenames.contains(&"billing_users.rs"));
+    }
+
+    #[test]
+    fn test_generate_single_schema_no_prefix() {
+        let schema = SchemaInfo {
+            tables: vec![
+                make_table("users", vec![make_col("id", "int4")]),
+                make_table("posts", vec![make_col("id", "int4")]),
+            ],
+            ..Default::default()
+        };
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        assert_eq!(files[0].filename, "users.rs");
+        assert_eq!(files[1].filename, "posts.rs");
     }
 
     #[test]

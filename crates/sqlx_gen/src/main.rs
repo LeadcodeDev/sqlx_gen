@@ -148,7 +148,14 @@ fn run_crud(args: CrudArgs) -> Result<()> {
     } else {
         std::fs::create_dir_all(&args.output_dir)?;
 
-        let filename = format!("{}_repository.rs", entity.table_name);
+        let base_name = match &entity.schema_name {
+            Some(schema) if !codegen::is_default_schema(schema) => {
+                format!("{}_{}", schema, entity.table_name)
+            }
+            _ => entity.table_name.clone(),
+        };
+        let normalized = codegen::normalize_module_name(&base_name);
+        let filename = format!("{}_repository.rs", normalized);
         let file_path = args.output_dir.join(&filename);
 
         let content = format!(
@@ -160,7 +167,7 @@ fn run_crud(args: CrudArgs) -> Result<()> {
         let edition = detect_edition(&args.output_dir);
         rustfmt_file(&file_path, &edition);
 
-        let mod_name = format!("{}_repository", entity.table_name);
+        let mod_name = format!("{}_repository", normalized);
         update_mod_rs(&args.output_dir, &mod_name)?;
     }
 

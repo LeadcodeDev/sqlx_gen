@@ -26,6 +26,8 @@ pub struct ParsedEntity {
     pub struct_name: String,
     /// Original table/view name from `#[sqlx_gen(table = "...")]`
     pub table_name: String,
+    /// Schema name from `#[sqlx_gen(schema = "...")]`
+    pub schema_name: Option<String>,
     /// Whether this entity represents a view (`#[sqlx_gen(kind = "view")]`)
     pub is_view: bool,
     /// Parsed fields
@@ -84,7 +86,7 @@ fn extract_use_imports(file: &syn::File) -> Vec<String> {
             if let syn::Item::Use(use_item) = item {
                 let text = use_item.to_token_stream().to_string();
                 // Skip serde and sqlx imports — the CRUD generator adds those itself
-                if text.contains("serde") || text.contains("sqlx") {
+                if (text.contains("serde") && !text.contains("serde_")) || text.contains("sqlx") {
                     return None;
                 }
                 // Normalize spacing: "use chrono :: { DateTime , Utc } ;" → cleaned up
@@ -112,7 +114,7 @@ fn normalize_use_statement(s: &str) -> String {
 fn extract_entity(item: &syn::ItemStruct) -> Result<ParsedEntity, String> {
     let struct_name = item.ident.to_string();
 
-    let (kind, table_name) = parse_sqlx_gen_struct_attrs(&item.attrs);
+    let (kind, schema_name, table_name) = parse_sqlx_gen_struct_attrs(&item.attrs);
     let is_view = kind.as_deref() == Some("view");
 
     // Fall back to struct name if no table annotation
@@ -132,16 +134,18 @@ fn extract_entity(item: &syn::ItemStruct) -> Result<ParsedEntity, String> {
     Ok(ParsedEntity {
         struct_name,
         table_name,
+        schema_name,
         is_view,
         fields,
         imports: Vec::new(), // filled by parse_entity_source
     })
 }
 
-/// Parse `#[sqlx_gen(kind = "...", table = "...")]` from struct attributes.
-/// Returns (kind, table_name).
-fn parse_sqlx_gen_struct_attrs(attrs: &[syn::Attribute]) -> (Option<String>, Option<String>) {
+/// Parse `#[sqlx_gen(kind = "...", schema = "...", table = "...")]` from struct attributes.
+/// Returns (kind, schema_name, table_name).
+fn parse_sqlx_gen_struct_attrs(attrs: &[syn::Attribute]) -> (Option<String>, Option<String>, Option<String>) {
     let mut kind = None;
+    let mut schema_name = None;
     let mut table_name = None;
 
     for attr in attrs {
@@ -150,13 +154,16 @@ fn parse_sqlx_gen_struct_attrs(attrs: &[syn::Attribute]) -> (Option<String>, Opt
             if let Some(k) = extract_attr_value(&tokens, "kind") {
                 kind = Some(k);
             }
+            if let Some(s) = extract_attr_value(&tokens, "schema") {
+                schema_name = Some(s);
+            }
             if let Some(t) = extract_attr_value(&tokens, "table") {
                 table_name = Some(t);
             }
         }
     }
 
-    (kind, table_name)
+    (kind, schema_name, table_name)
 }
 
 /// Extract a named string value from an attribute token string.
@@ -547,6 +554,23 @@ mod tests {
         "#;
         let entity = parse_entity_source(source).unwrap();
         assert!(entity.imports.is_empty());
+    }
+
+    #[test]
+    fn test_imports_keep_serde_json() {
+        let source = r#"
+            use serde::{Serialize, Deserialize};
+            use serde_json::Value;
+
+            #[derive(Debug, Clone, sqlx::FromRow)]
+            #[sqlx_gen(kind = "table", table = "users")]
+            pub struct Users {
+                pub data: Value,
+            }
+        "#;
+        let entity = parse_entity_source(source).unwrap();
+        assert_eq!(entity.imports.len(), 1);
+        assert!(entity.imports[0].contains("serde_json"));
     }
 
     #[test]

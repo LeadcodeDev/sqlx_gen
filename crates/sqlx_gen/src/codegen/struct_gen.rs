@@ -94,11 +94,12 @@ pub fn generate_struct(
         .collect();
 
     let table_name_str = &table.name;
+    let schema_name_str = &table.schema_name;
     let kind_str = if is_view { "view" } else { "table" };
 
     let tokens = quote! {
         #[derive(#(#derive_tokens),*)]
-        #[sqlx_gen(kind = #kind_str, table = #table_name_str)]
+        #[sqlx_gen(kind = #kind_str, schema = #schema_name_str, table = #table_name_str)]
         pub struct #struct_name {
             #(#fields)*
         }

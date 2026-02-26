@@ -23,9 +23,14 @@ pub fn generate_struct(
     let struct_name = format_ident!("{}", table.name.to_upper_camel_case());
 
     // Build derive list
+    imports.insert("use serde::{Serialize, Deserialize};".to_string());
     let mut derive_tokens = vec![
         quote! { Debug },
         quote! { Clone },
+        quote! { PartialEq },
+        quote! { Eq },
+        quote! { Serialize },
+        quote! { Deserialize },
         quote! { sqlx::FromRow },
     ];
     for d in extra_derives {
@@ -315,11 +320,12 @@ mod tests {
     }
 
     #[test]
-    fn test_int4_no_import() {
+    fn test_int4_only_serde_import() {
         let table = make_table("users", vec![make_col("id", "int4", false)]);
         let schema = SchemaInfo::default();
         let (_, imports) = gen_with(&table, &schema, DatabaseKind::Postgres, &[], &HashMap::new());
-        assert!(imports.is_empty());
+        assert_eq!(imports.len(), 1);
+        assert!(imports.iter().any(|i| i.contains("serde")));
     }
 
     #[test]

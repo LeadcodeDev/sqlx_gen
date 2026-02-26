@@ -20,7 +20,7 @@ Supports **PostgreSQL**, **MySQL**, and **SQLite**. Introspects tables, views, e
 - Custom derives (`--derives Serialize,Deserialize`)
 - Type overrides (`--type-overrides jsonb=MyType`)
 - SQL views support (`--views`)
-- Table filtering (`--tables users,orders`)
+- Table filtering (`--tables users,orders`) and exclusion (`--exclude-tables _migrations`)
 - Single-file or multi-file output
 - Dry-run mode (preview on stdout)
 
@@ -52,6 +52,11 @@ sqlx-gen -u sqlite:./local.db -o src/models
 sqlx-gen -u postgres://... --derives Serialize,Deserialize -o src/models
 ```
 
+### Exclude specific tables
+```sh
+sqlx-gen -u postgres://... --exclude-tables _migrations,schema_versions -o src/models
+```
+
 ### Include SQL views
 ```sh
 sqlx-gen -u postgres://... --views -o src/models
@@ -72,6 +77,7 @@ sqlx-gen -u postgres://... --dry-run
 | `--derives` | | Additional derive macros (comma-separated) | none |
 | `--type-overrides` | | Type overrides `sql_type=RustType` (comma-separated) | none |
 | `--tables` | | Only generate these tables (comma-separated) | all |
+| `--exclude-tables` | | Exclude these tables/views (comma-separated) | none |
 | `--views` | | Also generate structs for SQL views | false |
 | `--single-file` | | Write everything to a single `models.rs` | false |
 | `--dry-run` | | Print to stdout, don't write files | false |

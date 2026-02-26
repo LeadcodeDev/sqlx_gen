@@ -40,9 +40,15 @@ async fn main() -> Result<()> {
         }
     };
 
-    // Filter tables if requested
+    // Filter tables if requested (whitelist)
     if let Some(ref filter) = args.tables {
         schema_info.tables.retain(|t| filter.contains(&t.name));
+    }
+
+    // Exclude tables/views if requested (blacklist)
+    if let Some(ref exclude) = args.exclude_tables {
+        schema_info.tables.retain(|t| !exclude.contains(&t.name));
+        schema_info.views.retain(|v| !exclude.contains(&v.name));
     }
 
     let table_count = schema_info.tables.len();

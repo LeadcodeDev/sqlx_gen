@@ -27,9 +27,14 @@ pub fn generate_composite(
         composite.schema_name, composite.name
     );
 
+    imports.insert("use serde::{Serialize, Deserialize};".to_string());
     let mut derive_tokens = vec![
         quote! { Debug },
         quote! { Clone },
+        quote! { PartialEq },
+        quote! { Eq },
+        quote! { Serialize },
+        quote! { Deserialize },
         quote! { sqlx::Type },
     ];
     for d in extra_derives {
@@ -37,7 +42,12 @@ pub fn generate_composite(
         derive_tokens.push(quote! { #ident });
     }
 
-    let pg_name = &composite.name;
+    // Schema-qualify the type name for non-public schemas so sqlx can find the type
+    let pg_name = if composite.schema_name != "public" {
+        format!("{}.{}", composite.schema_name, composite.name)
+    } else {
+        composite.name.clone()
+    };
     let type_attr = quote! { #[sqlx(type_name = #pg_name)] };
 
     let fields: Vec<TokenStream> = composite
@@ -167,6 +177,28 @@ mod tests {
         let c = make_composite("geo_point", vec![make_field("x", "float8", false)]);
         let code = gen(&c);
         assert!(code.contains("sqlx(type_name = \"geo_point\")"));
+    }
+
+    #[test]
+    fn test_non_public_schema_qualified_type_name() {
+        let c = CompositeTypeInfo {
+            schema_name: "geo".to_string(),
+            name: "point".to_string(),
+            fields: vec![make_field("x", "float8", false)],
+        };
+        let schema = SchemaInfo::default();
+        let (tokens, _) = generate_composite(&c, DatabaseKind::Postgres, &schema, &[], &HashMap::new());
+        let code = parse_and_format(&tokens);
+        assert!(code.contains("sqlx(type_name = \"geo.point\")"));
+    }
+
+    #[test]
+    fn test_public_schema_not_qualified() {
+        let c = make_composite("address", vec![make_field("x", "text", false)]);
+        let code = gen(&c);
+        assert!(code.contains("sqlx(type_name = \"address\")"));
+        // type_name should NOT be schema-qualified for public schema
+        assert!(!code.contains("type_name = \"public.address\""));
     }
 
     // --- fields ---

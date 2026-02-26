@@ -33,6 +33,10 @@ pub struct Args {
     #[arg(long, value_delimiter = ',')]
     pub tables: Option<Vec<String>>,
 
+    /// Exclude these tables/views from generation (comma-separated)
+    #[arg(long, value_delimiter = ',')]
+    pub exclude_tables: Option<Vec<String>>,
+
     /// Also generate structs for SQL views
     #[arg(long)]
     pub views: bool,
@@ -89,6 +93,7 @@ mod tests {
             type_overrides: vec![],
             single_file: false,
             tables: None,
+            exclude_tables: None,
             views: false,
             dry_run: false,
         }
@@ -103,6 +108,7 @@ mod tests {
             type_overrides: overrides.into_iter().map(|s| s.to_string()).collect(),
             single_file: false,
             tables: None,
+            exclude_tables: None,
             views: false,
             dry_run: false,
         }
@@ -239,5 +245,21 @@ mod tests {
         let args = make_args_with_overrides(vec!["key="]);
         let map = args.parse_type_overrides();
         assert_eq!(map.get("key").unwrap(), "");
+    }
+
+    // ========== exclude_tables ==========
+
+    #[test]
+    fn test_exclude_tables_default_none() {
+        let args = make_args("postgres://localhost/db");
+        assert!(args.exclude_tables.is_none());
+    }
+
+    #[test]
+    fn test_exclude_tables_set() {
+        let mut args = make_args("postgres://localhost/db");
+        args.exclude_tables = Some(vec!["_migrations".to_string(), "schema_versions".to_string()]);
+        assert_eq!(args.exclude_tables.as_ref().unwrap().len(), 2);
+        assert!(args.exclude_tables.as_ref().unwrap().contains(&"_migrations".to_string()));
     }
 }

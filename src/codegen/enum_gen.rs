@@ -17,14 +17,18 @@ pub fn generate_enum(
     for imp in imports_for_derives(extra_derives) {
         imports.insert(imp);
     }
-    let enum_name = format_ident!("{}", enum_info.name.to_upper_camel_case());
 
+    let enum_name = format_ident!("{}", enum_info.name.to_upper_camel_case());
     let doc = format!("Enum: {}.{}", enum_info.schema_name, enum_info.name);
 
+    imports.insert("use serde::{Serialize, Deserialize};".to_string());
     let mut derive_tokens = vec![
         quote! { Debug },
         quote! { Clone },
         quote! { PartialEq },
+        quote! { Eq },
+        quote! { Serialize },
+        quote! { Deserialize },
         quote! { sqlx::Type },
     ];
     for d in extra_derives {
@@ -33,8 +37,13 @@ pub fn generate_enum(
     }
 
     // For PG, add #[sqlx(type_name = "...")]
+    // Schema-qualify the type name for non-public schemas so sqlx can find the type
     let type_attr = if db_kind == DatabaseKind::Postgres {
-        let pg_name = &enum_info.name;
+        let pg_name = if enum_info.schema_name != "public" {
+            format!("{}.{}", enum_info.schema_name, enum_info.name)
+        } else {
+            enum_info.name.clone()
+        };
         quote! { #[sqlx(type_name = #pg_name)] }
     } else {
         quote! {}
@@ -90,7 +99,11 @@ mod tests {
         parse_and_format(&tokens)
     }
 
-    fn gen_with_derives(info: &EnumInfo, db: DatabaseKind, derives: &[String]) -> (String, BTreeSet<String>) {
+    fn gen_with_derives(
+        info: &EnumInfo,
+        db: DatabaseKind,
+        derives: &[String],
+    ) -> (String, BTreeSet<String>) {
         let (tokens, imports) = generate_enum(info, db, derives);
         (parse_and_format(&tokens), imports)
     }
@@ -126,6 +139,27 @@ mod tests {
         let e = make_enum("user_status", vec!["a"]);
         let code = gen(&e, DatabaseKind::Postgres);
         assert!(code.contains("sqlx(type_name = \"user_status\")"));
+    }
+
+    #[test]
+    fn test_postgres_non_public_schema_qualified_type_name() {
+        let e = EnumInfo {
+            schema_name: "auth".to_string(),
+            name: "role".to_string(),
+            variants: vec!["admin".to_string(), "user".to_string()],
+        };
+        let (tokens, _) = generate_enum(&e, DatabaseKind::Postgres, &[]);
+        let code = parse_and_format(&tokens);
+        assert!(code.contains("sqlx(type_name = \"auth.role\")"));
+    }
+
+    #[test]
+    fn test_postgres_public_schema_not_qualified() {
+        let e = make_enum("status", vec!["a"]);
+        let code = gen(&e, DatabaseKind::Postgres);
+        assert!(code.contains("sqlx(type_name = \"status\")"));
+        // type_name should NOT be schema-qualified for public schema
+        assert!(!code.contains("type_name = \"public.status\""));
     }
 
     #[test]
@@ -207,10 +241,10 @@ mod tests {
     // --- imports ---
 
     #[test]
-    fn test_no_derives_empty_imports() {
+    fn test_no_extra_derives_has_serde_import() {
         let e = make_enum("status", vec!["a"]);
         let (_, imports) = gen_with_derives(&e, DatabaseKind::Postgres, &[]);
-        assert!(imports.is_empty());
+        assert!(imports.iter().any(|i| i.contains("serde")));
     }
 
     #[test]

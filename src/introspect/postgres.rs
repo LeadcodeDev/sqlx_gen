@@ -1,4 +1,4 @@
-use anyhow::Result;
+use crate::error::Result;
 use sqlx::PgPool;
 
 use super::{ColumnInfo, CompositeTypeInfo, DomainInfo, EnumInfo, SchemaInfo, TableInfo};

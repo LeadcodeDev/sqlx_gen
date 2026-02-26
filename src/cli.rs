@@ -54,7 +54,7 @@ pub enum DatabaseKind {
 }
 
 impl Args {
-    pub fn database_kind(&self) -> anyhow::Result<DatabaseKind> {
+    pub fn database_kind(&self) -> crate::error::Result<DatabaseKind> {
         let url = &self.database_url;
         if url.starts_with("postgres://") || url.starts_with("postgresql://") {
             Ok(DatabaseKind::Postgres)
@@ -63,9 +63,9 @@ impl Args {
         } else if url.starts_with("sqlite://") || url.starts_with("sqlite:") {
             Ok(DatabaseKind::Sqlite)
         } else {
-            anyhow::bail!(
-                "Cannot detect database type from URL. Expected postgres://, mysql://, or sqlite:// prefix."
-            )
+            Err(crate::error::Error::Config(
+                "Cannot detect database type from URL. Expected postgres://, mysql://, or sqlite:// prefix.".to_string(),
+            ))
         }
     }
 

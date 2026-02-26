@@ -1,4 +1,4 @@
-use anyhow::Result;
+use crate::error::Result;
 use sqlx::SqlitePool;
 
 use super::{ColumnInfo, SchemaInfo, TableInfo};

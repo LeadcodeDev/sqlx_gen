@@ -1,4 +1,4 @@
-use anyhow::Result;
+use sqlx_gen::error::Result;
 use clap::Parser;
 use sqlx::{MySqlPool, PgPool, SqlitePool};
 

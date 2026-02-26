@@ -1,4 +1,4 @@
-use anyhow::Result;
+use crate::error::Result;
 use sqlx::MySqlPool;
 
 use super::{ColumnInfo, EnumInfo, SchemaInfo, TableInfo};

@@ -17,6 +17,10 @@ pub struct ParsedField {
     pub inner_type: String,
     /// Whether this field is a primary key (`#[sqlx_gen(primary_key)]`)
     pub is_primary_key: bool,
+    /// SQL type name for custom types needing a cast (e.g. "agent.connector_usages")
+    pub sql_type: Option<String>,
+    /// Whether the SQL type is an array (needs `[]` suffix in cast)
+    pub is_sql_array: bool,
 }
 
 /// Represents an entity parsed from a generated Rust file.
@@ -185,7 +189,7 @@ fn extract_field(field: &syn::Field) -> Result<ParsedField, String> {
         .to_string();
 
     let column_name = get_sqlx_rename(&field.attrs).unwrap_or_else(|| rust_name.clone());
-    let is_primary_key = has_sqlx_gen_primary_key(&field.attrs);
+    let (is_primary_key, sql_type, is_sql_array) = parse_sqlx_gen_field_attrs(&field.attrs);
 
     let rust_type = field.ty.to_token_stream().to_string();
     let (is_nullable, inner_type) = extract_option_type(&field.ty);
@@ -202,20 +206,34 @@ fn extract_field(field: &syn::Field) -> Result<ParsedField, String> {
         is_nullable,
         inner_type,
         is_primary_key,
+        sql_type,
+        is_sql_array,
     })
 }
 
-/// Check for `#[sqlx_gen(primary_key)]` on a field.
-fn has_sqlx_gen_primary_key(attrs: &[syn::Attribute]) -> bool {
+/// Parse `#[sqlx_gen(...)]` attributes on a field.
+/// Returns (is_primary_key, sql_type, is_sql_array).
+fn parse_sqlx_gen_field_attrs(attrs: &[syn::Attribute]) -> (bool, Option<String>, bool) {
+    let mut is_pk = false;
+    let mut sql_type = None;
+    let mut is_array = false;
+
     for attr in attrs {
         if attr.path().is_ident("sqlx_gen") {
             let tokens = attr.meta.to_token_stream().to_string();
             if tokens.contains("primary_key") {
-                return true;
+                is_pk = true;
+            }
+            if let Some(t) = extract_attr_value(&tokens, "sql_type") {
+                sql_type = Some(t);
+            }
+            if tokens.contains("is_array") {
+                is_array = true;
             }
         }
     }
-    false
+
+    (is_pk, sql_type, is_array)
 }
 
 /// Extract `#[sqlx(rename = "...")]` value from field attributes.

@@ -148,13 +148,12 @@ fn run_crud(args: CrudArgs) -> Result<()> {
     } else {
         std::fs::create_dir_all(&args.output_dir)?;
 
-        let base_name = match &entity.schema_name {
-            Some(schema) if !codegen::is_default_schema(schema) => {
-                format!("{}_{}", schema, entity.table_name)
-            }
-            _ => entity.table_name.clone(),
-        };
-        let normalized = codegen::normalize_module_name(&base_name);
+        let entity_stem = args
+            .entity_file
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&entity.table_name);
+        let normalized = codegen::normalize_module_name(entity_stem);
         let filename = format!("{}_repository.rs", normalized);
         let file_path = args.output_dir.join(&filename);
 

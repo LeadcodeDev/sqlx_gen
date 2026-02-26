@@ -15,12 +15,18 @@ jobs:
 
       - name: Verify tag matches Cargo.toml version
         run: |
-          CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          CARGO_VERSION=$(grep '^version' crates/sqlx_gen/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
           TAG_VERSION=${GITHUB_REF#refs/tags/}
           if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
             echo "Tag $TAG_VERSION does not match Cargo.toml version $CARGO_VERSION"
             exit 1
           fi
 
-      - name: Publish
-        run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - name: Publish sqlx-gen-macros
+        run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }} --package sqlx-gen-macros
+
+      - name: Wait for crates.io index update
+        run: sleep 30
+
+      - name: Publish sqlx-gen
+        run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }} --package sqlx-gen

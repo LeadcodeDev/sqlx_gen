@@ -80,6 +80,7 @@ mod tests {
                 schema_name: "public".to_string(),
                 name: name.to_string(),
                 variants: vec!["a".to_string()],
+                default_variant: None,
             }],
             ..Default::default()
         }

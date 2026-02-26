@@ -71,6 +71,20 @@ pub fn generate_enum(
         })
         .collect();
 
+    let default_impl = if let Some(ref default_variant) = enum_info.default_variant {
+        let variant_pascal = default_variant.to_upper_camel_case();
+        let variant_ident = format_ident!("{}", variant_pascal);
+        quote! {
+            impl Default for #enum_name {
+                fn default() -> Self {
+                    Self::#variant_ident
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let tokens = quote! {
         #[doc = #doc]
         #[derive(#(#derive_tokens),*)]
@@ -79,6 +93,8 @@ pub fn generate_enum(
         pub enum #enum_name {
             #(#variants)*
         }
+
+        #default_impl
     };
 
     (tokens, imports)
@@ -94,6 +110,7 @@ mod tests {
             schema_name: "public".to_string(),
             name: name.to_string(),
             variants: variants.into_iter().map(|s| s.to_string()).collect(),
+            default_variant: None,
         }
     }
 
@@ -150,6 +167,7 @@ mod tests {
             schema_name: "auth".to_string(),
             name: "role".to_string(),
             variants: vec!["admin".to_string(), "user".to_string()],
+            default_variant: None,
         };
         let (tokens, _) = generate_enum(&e, DatabaseKind::Postgres, &[]);
         let code = parse_and_format(&tokens);
@@ -288,5 +306,40 @@ mod tests {
         let e = make_enum("my__enum", vec!["a"]);
         let code = gen(&e, DatabaseKind::Postgres);
         assert!(code.contains("pub enum MyEnum"));
+    }
+
+    // --- impl Default ---
+
+    #[test]
+    fn test_default_impl_generated() {
+        let e = EnumInfo {
+            schema_name: "public".to_string(),
+            name: "task_status".to_string(),
+            variants: vec!["idle".to_string(), "running".to_string(), "done".to_string()],
+            default_variant: Some("idle".to_string()),
+        };
+        let code = gen(&e, DatabaseKind::Postgres);
+        assert!(code.contains("impl Default for TaskStatus"));
+        assert!(code.contains("Self::Idle"));
+    }
+
+    #[test]
+    fn test_no_default_impl_when_none() {
+        let e = make_enum("status", vec!["active", "inactive"]);
+        let code = gen(&e, DatabaseKind::Postgres);
+        assert!(!code.contains("impl Default"));
+    }
+
+    #[test]
+    fn test_default_impl_snake_case_variant() {
+        let e = EnumInfo {
+            schema_name: "public".to_string(),
+            name: "status".to_string(),
+            variants: vec!["in_progress".to_string(), "done".to_string()],
+            default_variant: Some("in_progress".to_string()),
+        };
+        let code = gen(&e, DatabaseKind::Postgres);
+        assert!(code.contains("impl Default for Status"));
+        assert!(code.contains("Self::InProgress"));
     }
 }

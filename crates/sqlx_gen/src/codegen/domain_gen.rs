@@ -31,6 +31,7 @@ pub fn generate_domain(
         is_primary_key: false,
         ordinal_position: 0,
         schema_name: domain.schema_name.clone(),
+        column_default: None,
     };
 
     let rust_type = typemap::map_column(&fake_col, db_kind, schema_info, type_overrides);

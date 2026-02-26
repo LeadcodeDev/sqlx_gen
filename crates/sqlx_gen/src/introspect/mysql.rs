@@ -77,6 +77,7 @@ async fn fetch_tables(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableI
             is_primary_key: column_key == "PRI",
             ordinal_position: ordinal as i32,
             schema_name: schema,
+            column_default: None,
         });
     }
 
@@ -133,6 +134,7 @@ async fn fetch_views(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableIn
             is_primary_key: false,
             ordinal_position: ordinal as i32,
             schema_name: schema,
+            column_default: None,
         });
     }
 
@@ -155,6 +157,7 @@ fn extract_enums(tables: &[TableInfo]) -> Vec<EnumInfo> {
                         schema_name: table.schema_name.clone(),
                         name: enum_name,
                         variants,
+                        default_variant: None,
                     });
                 }
             }
@@ -200,6 +203,7 @@ mod tests {
             is_primary_key: false,
             ordinal_position: 0,
             schema_name: "test_db".to_string(),
+            column_default: None,
         }
     }
 

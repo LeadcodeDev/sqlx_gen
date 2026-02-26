@@ -28,7 +28,7 @@ pub async fn introspect(
 }
 
 async fn fetch_tables(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo>> {
-    let rows = sqlx::query_as::<_, (String, String, String, String, String, String, i32, bool)>(
+    let rows = sqlx::query_as::<_, (String, String, String, String, String, String, i32, bool, Option<String>)>(
         r#"
         SELECT
             c.table_schema,
@@ -38,7 +38,8 @@ async fn fetch_tables(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo
             COALESCE(c.udt_name, c.data_type) as udt_name,
             c.is_nullable,
             c.ordinal_position,
-            CASE WHEN kcu.column_name IS NOT NULL THEN true ELSE false END AS is_primary_key
+            CASE WHEN kcu.column_name IS NOT NULL THEN true ELSE false END AS is_primary_key,
+            c.column_default
         FROM information_schema.columns c
         JOIN information_schema.tables t
             ON t.table_schema = c.table_schema
@@ -63,7 +64,7 @@ async fn fetch_tables(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo
     let mut tables: Vec<TableInfo> = Vec::new();
     let mut current_key: Option<(String, String)> = None;
 
-    for (schema, table, col_name, data_type, udt_name, nullable, ordinal, is_pk) in rows {
+    for (schema, table, col_name, data_type, udt_name, nullable, ordinal, is_pk, column_default) in rows {
         let key = (schema.clone(), table.clone());
         if current_key.as_ref() != Some(&key) {
             current_key = Some(key);
@@ -81,6 +82,7 @@ async fn fetch_tables(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo
             is_primary_key: is_pk,
             ordinal_position: ordinal,
             schema_name: schema,
+            column_default,
         });
     }
 
@@ -88,7 +90,7 @@ async fn fetch_tables(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo
 }
 
 async fn fetch_views(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo>> {
-    let rows = sqlx::query_as::<_, (String, String, String, String, String, String, i32)>(
+    let rows = sqlx::query_as::<_, (String, String, String, String, String, String, i32, Option<String>)>(
         r#"
         SELECT
             c.table_schema,
@@ -97,7 +99,8 @@ async fn fetch_views(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo>
             c.data_type,
             COALESCE(c.udt_name, c.data_type) as udt_name,
             c.is_nullable,
-            c.ordinal_position
+            c.ordinal_position,
+            c.column_default
         FROM information_schema.columns c
         JOIN information_schema.tables t
             ON t.table_schema = c.table_schema
@@ -114,7 +117,7 @@ async fn fetch_views(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo>
     let mut views: Vec<TableInfo> = Vec::new();
     let mut current_key: Option<(String, String)> = None;
 
-    for (schema, table, col_name, data_type, udt_name, nullable, ordinal) in rows {
+    for (schema, table, col_name, data_type, udt_name, nullable, ordinal, column_default) in rows {
         let key = (schema.clone(), table.clone());
         if current_key.as_ref() != Some(&key) {
             current_key = Some(key);
@@ -132,6 +135,7 @@ async fn fetch_views(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo>
             is_primary_key: false,
             ordinal_position: ordinal,
             schema_name: schema,
+            column_default,
         });
     }
 
@@ -167,6 +171,7 @@ async fn fetch_enums(pool: &PgPool, schemas: &[String]) -> Result<Vec<EnumInfo>>
                 schema_name: schema,
                 name,
                 variants: Vec::new(),
+                default_variant: None,
             });
         }
         enums.last_mut().unwrap().variants.push(variant);
@@ -227,6 +232,7 @@ async fn fetch_composite_types(
             is_primary_key: false,
             ordinal_position: ordinal,
             schema_name: schema,
+            column_default: None,
         });
     }
 

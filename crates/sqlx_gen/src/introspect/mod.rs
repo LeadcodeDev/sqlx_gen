@@ -14,6 +14,8 @@ pub struct ColumnInfo {
     pub is_primary_key: bool,
     pub ordinal_position: i32,
     pub schema_name: String,
+    /// Raw column default expression (e.g. `'idle'::task_status`)
+    pub column_default: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -28,6 +30,8 @@ pub struct EnumInfo {
     pub schema_name: String,
     pub name: String,
     pub variants: Vec<String>,
+    /// Default variant name (raw SQL value, e.g. "idle"), if any column uses this enum with a DEFAULT.
+    pub default_variant: Option<String>,
 }
 
 #[derive(Debug, Clone)]

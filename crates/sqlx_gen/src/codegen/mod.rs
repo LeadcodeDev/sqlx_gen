@@ -152,8 +152,16 @@ pub fn generate(
     let mut types_blocks: Vec<String> = Vec::new();
     let mut types_imports = BTreeSet::new();
 
+    // Enrich enums with default variants extracted from column defaults
+    let enum_defaults = extract_enum_defaults(schema_info);
     for enum_info in &schema_info.enums {
-        let (tokens, imports) = enum_gen::generate_enum(enum_info, db_kind, extra_derives);
+        let mut enriched = enum_info.clone();
+        if enriched.default_variant.is_none() {
+            if let Some(default) = enum_defaults.get(&enum_info.name) {
+                enriched.default_variant = Some(default.clone());
+            }
+        }
+        let (tokens, imports) = enum_gen::generate_enum(&enriched, db_kind, extra_derives);
         types_blocks.push(format_tokens(&tokens));
         types_imports.extend(imports);
     }
@@ -196,6 +204,59 @@ pub fn generate(
     }
 
     files
+}
+
+/// Extract default variant values for enums by scanning column defaults across all tables and views.
+/// PostgreSQL column defaults look like `'idle'::task_status` or `'active'::public.task_status`.
+fn extract_enum_defaults(schema_info: &SchemaInfo) -> HashMap<String, String> {
+    let mut defaults: HashMap<String, String> = HashMap::new();
+
+    let all_columns = schema_info
+        .tables
+        .iter()
+        .chain(schema_info.views.iter())
+        .flat_map(|t| t.columns.iter());
+
+    for col in all_columns {
+        let default_expr = match &col.column_default {
+            Some(d) => d,
+            None => continue,
+        };
+
+        // Strip leading underscore for array types to get the base enum name
+        let base_udt = col.udt_name.strip_prefix('_').unwrap_or(&col.udt_name);
+
+        // Check if this column references a known enum
+        let enum_match = schema_info.enums.iter().find(|e| e.name == base_udt);
+        if enum_match.is_none() {
+            continue;
+        }
+
+        // Parse PG default: 'variant'::type_name
+        if let Some(variant) = parse_pg_enum_default(default_expr) {
+            defaults.entry(base_udt.to_string()).or_insert(variant);
+        }
+    }
+
+    defaults
+}
+
+/// Parse a PostgreSQL column default expression to extract the enum variant.
+/// Handles formats like `'idle'::task_status`, `'idle'::public.task_status`.
+fn parse_pg_enum_default(default_expr: &str) -> Option<String> {
+    // Pattern: 'value'::some_type
+    let stripped = default_expr.trim();
+    if stripped.starts_with('\'') {
+        if let Some(end_quote) = stripped[1..].find('\'') {
+            let value = &stripped[1..1 + end_quote];
+            // Verify there's a :: cast after the closing quote
+            let rest = &stripped[2 + end_quote..];
+            if rest.starts_with("::") {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
 }
 
 /// In single-file mode, strip `use super::types::` imports since everything is in the same file.
@@ -639,6 +700,7 @@ mod tests {
             is_primary_key: false,
             ordinal_position: 0,
             schema_name: "public".to_string(),
+            column_default: None,
         }
     }
 
@@ -680,6 +742,7 @@ mod tests {
                 schema_name: "public".to_string(),
                 name: "status".to_string(),
                 variants: vec!["active".to_string(), "inactive".to_string()],
+                default_variant: None,
             }],
             ..Default::default()
         };
@@ -695,6 +758,7 @@ mod tests {
                 schema_name: "public".to_string(),
                 name: "status".to_string(),
                 variants: vec!["active".to_string()],
+                default_variant: None,
             }],
             composite_types: vec![CompositeTypeInfo {
                 schema_name: "public".to_string(),
@@ -722,6 +786,7 @@ mod tests {
                 schema_name: "public".to_string(),
                 name: "status".to_string(),
                 variants: vec!["active".to_string()],
+                default_variant: None,
             }],
             ..Default::default()
         };
@@ -756,6 +821,7 @@ mod tests {
                 schema_name: "public".to_string(),
                 name: "status".to_string(),
                 variants: vec!["active".to_string()],
+                default_variant: None,
             }],
             ..Default::default()
         };
@@ -771,6 +837,7 @@ mod tests {
                 schema_name: "public".to_string(),
                 name: "status".to_string(),
                 variants: vec!["active".to_string()],
+                default_variant: None,
             }],
             ..Default::default()
         };
@@ -789,6 +856,7 @@ mod tests {
                 schema_name: "public".to_string(),
                 name: "status".to_string(),
                 variants: vec!["active".to_string()],
+                default_variant: None,
             }],
             ..Default::default()
         };
@@ -815,6 +883,7 @@ mod tests {
                 schema_name: "public".to_string(),
                 name: "status".to_string(),
                 variants: vec!["active".to_string()],
+                default_variant: None,
             }],
             ..Default::default()
         };
@@ -846,6 +915,7 @@ mod tests {
                 schema_name: "public".to_string(),
                 name: "status".to_string(),
                 variants: vec!["active".to_string(), "inactive".to_string()],
+                default_variant: None,
             }],
             ..Default::default()
         };
@@ -924,6 +994,7 @@ mod tests {
                 is_primary_key: false,
                 ordinal_position: 0,
                 schema_name: "public".to_string(),
+                column_default: None,
             }])],
             ..Default::default()
         };
@@ -992,5 +1063,154 @@ mod tests {
         };
         let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), true);
         assert_eq!(files.len(), 2);
+    }
+
+    // ========== parse_pg_enum_default ==========
+
+    #[test]
+    fn test_parse_pg_enum_default_simple() {
+        assert_eq!(
+            parse_pg_enum_default("'idle'::task_status"),
+            Some("idle".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_pg_enum_default_schema_qualified() {
+        assert_eq!(
+            parse_pg_enum_default("'active'::public.task_status"),
+            Some("active".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_pg_enum_default_not_enum() {
+        // No single-quote pattern
+        assert_eq!(parse_pg_enum_default("nextval('users_id_seq')"), None);
+    }
+
+    #[test]
+    fn test_parse_pg_enum_default_no_cast() {
+        assert_eq!(parse_pg_enum_default("'hello'"), None);
+    }
+
+    #[test]
+    fn test_parse_pg_enum_default_empty() {
+        assert_eq!(parse_pg_enum_default(""), None);
+    }
+
+    // ========== extract_enum_defaults ==========
+
+    #[test]
+    fn test_extract_enum_defaults_from_column() {
+        let schema = SchemaInfo {
+            tables: vec![TableInfo {
+                schema_name: "public".to_string(),
+                name: "tasks".to_string(),
+                columns: vec![ColumnInfo {
+                    name: "status".to_string(),
+                    data_type: "USER-DEFINED".to_string(),
+                    udt_name: "task_status".to_string(),
+                    is_nullable: false,
+                    is_primary_key: false,
+                    ordinal_position: 0,
+                    schema_name: "public".to_string(),
+                    column_default: Some("'idle'::task_status".to_string()),
+                }],
+            }],
+            enums: vec![EnumInfo {
+                schema_name: "public".to_string(),
+                name: "task_status".to_string(),
+                variants: vec!["idle".to_string(), "running".to_string()],
+                default_variant: None,
+            }],
+            ..Default::default()
+        };
+        let defaults = extract_enum_defaults(&schema);
+        assert_eq!(defaults.get("task_status"), Some(&"idle".to_string()));
+    }
+
+    #[test]
+    fn test_extract_enum_defaults_no_default() {
+        let schema = SchemaInfo {
+            tables: vec![TableInfo {
+                schema_name: "public".to_string(),
+                name: "tasks".to_string(),
+                columns: vec![ColumnInfo {
+                    name: "status".to_string(),
+                    data_type: "USER-DEFINED".to_string(),
+                    udt_name: "task_status".to_string(),
+                    is_nullable: false,
+                    is_primary_key: false,
+                    ordinal_position: 0,
+                    schema_name: "public".to_string(),
+                    column_default: None,
+                }],
+            }],
+            enums: vec![EnumInfo {
+                schema_name: "public".to_string(),
+                name: "task_status".to_string(),
+                variants: vec!["idle".to_string()],
+                default_variant: None,
+            }],
+            ..Default::default()
+        };
+        let defaults = extract_enum_defaults(&schema);
+        assert!(defaults.is_empty());
+    }
+
+    #[test]
+    fn test_extract_enum_defaults_non_enum_column_ignored() {
+        let schema = SchemaInfo {
+            tables: vec![TableInfo {
+                schema_name: "public".to_string(),
+                name: "users".to_string(),
+                columns: vec![ColumnInfo {
+                    name: "name".to_string(),
+                    data_type: "character varying".to_string(),
+                    udt_name: "varchar".to_string(),
+                    is_nullable: false,
+                    is_primary_key: false,
+                    ordinal_position: 0,
+                    schema_name: "public".to_string(),
+                    column_default: Some("'hello'::character varying".to_string()),
+                }],
+            }],
+            enums: vec![],
+            ..Default::default()
+        };
+        let defaults = extract_enum_defaults(&schema);
+        assert!(defaults.is_empty());
+    }
+
+    #[test]
+    fn test_generate_enum_with_default() {
+        let schema = SchemaInfo {
+            tables: vec![TableInfo {
+                schema_name: "public".to_string(),
+                name: "tasks".to_string(),
+                columns: vec![ColumnInfo {
+                    name: "status".to_string(),
+                    data_type: "USER-DEFINED".to_string(),
+                    udt_name: "task_status".to_string(),
+                    is_nullable: false,
+                    is_primary_key: false,
+                    ordinal_position: 0,
+                    schema_name: "public".to_string(),
+                    column_default: Some("'idle'::task_status".to_string()),
+                }],
+            }],
+            enums: vec![EnumInfo {
+                schema_name: "public".to_string(),
+                name: "task_status".to_string(),
+                variants: vec!["idle".to_string(), "running".to_string()],
+                default_variant: None,
+            }],
+            ..Default::default()
+        };
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let types_file = files.iter().find(|f| f.filename == "types.rs").unwrap();
+        assert!(types_file.code.contains("impl Default for TaskStatus"));
+        assert!(types_file.code.contains("Self::Idle"));
     }
 }

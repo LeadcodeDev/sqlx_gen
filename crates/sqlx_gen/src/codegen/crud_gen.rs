@@ -24,11 +24,11 @@ pub fn generate_crud_from_parsed(
     // Pool type (used via full path sqlx::PgPool etc., no import needed)
     let pool_type = pool_type_tokens(db_kind);
 
-    // When the entity has custom SQL array types (e.g. Vec<ConnectorUsages> from connector_usages[]),
+    // When the entity has custom SQL types (enums, composites, arrays),
     // query_as! macro can't resolve the column type at compile time. Fall back to runtime query_as::<_, T>()
     // for queries that return rows. DELETE (no rows returned) can still use macro.
-    let has_sql_array = entity.fields.iter().any(|f| f.is_sql_array);
-    let use_macro = query_macro && !has_sql_array;
+    let has_custom_sql_type = entity.fields.iter().any(|f| f.sql_type.is_some());
+    let use_macro = query_macro && !has_custom_sql_type;
 
     // Entity import
     imports.insert(format!("use {}::{};", entity_module_path, entity.struct_name));
@@ -1288,7 +1288,7 @@ mod tests {
         assert!(!code.contains("query!("));
     }
 
-    // --- sql_array fallback: macro mode + array field → runtime for SELECT, macro for DELETE ---
+    // --- custom sql_type fallback: macro mode + custom type → runtime for SELECT, macro for DELETE ---
 
     fn entity_with_sql_array() -> ParsedEntity {
         ParsedEntity {
@@ -1378,5 +1378,58 @@ mod tests {
         let code = gen_macro_array(&entity_with_sql_array(), DatabaseKind::Postgres);
         // Should NOT contain query_as! macro (only query_as::<_ for runtime)
         assert!(!code.contains("query_as!("));
+    }
+
+    // --- custom enum (non-array) also triggers runtime fallback ---
+
+    fn entity_with_sql_enum() -> ParsedEntity {
+        ParsedEntity {
+            struct_name: "Task".to_string(),
+            table_name: "tasks".to_string(),
+            schema_name: None,
+            is_view: false,
+            fields: vec![
+                ParsedField {
+                    rust_name: "id".to_string(),
+                    column_name: "id".to_string(),
+                    rust_type: "i32".to_string(),
+                    inner_type: "i32".to_string(),
+                    is_nullable: false,
+                    is_primary_key: true,
+                    sql_type: None,
+                    is_sql_array: false,
+                },
+                ParsedField {
+                    rust_name: "status".to_string(),
+                    column_name: "status".to_string(),
+                    rust_type: "TaskStatus".to_string(),
+                    inner_type: "TaskStatus".to_string(),
+                    is_nullable: false,
+                    is_primary_key: false,
+                    sql_type: Some("task_status".to_string()),
+                    is_sql_array: false,
+                },
+            ],
+            imports: vec![],
+        }
+    }
+
+    #[test]
+    fn test_sql_enum_macro_uses_runtime() {
+        let skip = Methods::all();
+        let (tokens, _) = generate_crud_from_parsed(&entity_with_sql_enum(), DatabaseKind::Postgres, "crate::models::task", &skip, true);
+        let code = parse_and_format(&tokens);
+        // SELECT queries should use runtime query_as, not macro
+        assert!(code.contains("query_as::<"));
+        assert!(!code.contains("query_as!("));
+    }
+
+    #[test]
+    fn test_sql_enum_macro_delete_still_uses_macro() {
+        let skip = Methods::all();
+        let (tokens, _) = generate_crud_from_parsed(&entity_with_sql_enum(), DatabaseKind::Postgres, "crate::models::task", &skip, true);
+        let code = parse_and_format(&tokens);
+        // DELETE still uses query! macro
+        assert!(code.contains("query!"));
     }
 }

@@ -199,6 +199,7 @@ mod tests {
             is_primary_key: false,
             ordinal_position: 0,
             schema_name: "public".to_string(),
+            column_default: None,
         }
     }
 
@@ -413,6 +414,7 @@ mod tests {
             is_primary_key: false,
             ordinal_position: 0,
             schema_name: "test_db".to_string(),
+            column_default: None,
         }]);
         let schema = SchemaInfo::default();
         let (code, imports) = gen_with(&table, &schema, DatabaseKind::Mysql, &[], &HashMap::new());
@@ -430,6 +432,7 @@ mod tests {
             is_primary_key: false,
             ordinal_position: 0,
             schema_name: "test_db".to_string(),
+            column_default: None,
         }]);
         let schema = SchemaInfo::default();
         let (code, _) = gen_with(&table, &schema, DatabaseKind::Mysql, &[], &HashMap::new());

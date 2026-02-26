@@ -24,6 +24,12 @@ pub fn generate_crud_from_parsed(
     // Pool type (used via full path sqlx::PgPool etc., no import needed)
     let pool_type = pool_type_tokens(db_kind);
 
+    // When the entity has custom SQL array types (e.g. Vec<ConnectorUsages> from connector_usages[]),
+    // query_as! macro can't resolve the column type at compile time. Fall back to runtime query_as::<_, T>()
+    // for queries that return rows. DELETE (no rows returned) can still use macro.
+    let has_sql_array = entity.fields.iter().any(|f| f.is_sql_array);
+    let use_macro = query_macro && !has_sql_array;
+
     // Entity import
     imports.insert(format!("use {}::{};", entity_module_path, entity.struct_name));
 
@@ -57,7 +63,7 @@ pub fn generate_crud_from_parsed(
     // --- get_all ---
     if methods.get_all {
         let sql = format!("SELECT * FROM {}", table_name);
-        let method = if query_macro {
+        let method = if use_macro {
             quote! {
                 pub async fn get_all(&self) -> Result<Vec<#entity_ident>, sqlx::Error> {
                     sqlx::query_as!(#entity_ident, #sql)
@@ -87,7 +93,7 @@ pub fn generate_crud_from_parsed(
             DatabaseKind::Postgres => format!("SELECT * FROM {} LIMIT $1 OFFSET $2", table_name),
             DatabaseKind::Mysql | DatabaseKind::Sqlite => format!("SELECT * FROM {} LIMIT ? OFFSET ?", table_name),
         };
-        let method = if query_macro {
+        let method = if use_macro {
             quote! {
                 pub async fn paginate(&self, params: &#paginate_params_ident) -> Result<#paginated_ident, sqlx::Error> {
                     let total: i64 = sqlx::query_scalar!(#count_sql)
@@ -192,7 +198,7 @@ pub fn generate_crud_from_parsed(
             })
             .collect();
 
-        let method = if query_macro {
+        let method = if use_macro {
             let pk_arg_names: Vec<TokenStream> = pk_fields
                 .iter()
                 .map(|f| {
@@ -274,7 +280,7 @@ pub fn generate_crud_from_parsed(
             table_name,
             &pk_fields,
             &non_pk_fields,
-            query_macro,
+            use_macro,
         );
         method_tokens.push(insert_method);
 
@@ -365,7 +371,7 @@ pub fn generate_crud_from_parsed(
             })
             .collect();
 
-        let update_method = if query_macro {
+        let update_method = if use_macro {
             match db_kind {
                 DatabaseKind::Postgres | DatabaseKind::Sqlite => {
                     quote! {
@@ -607,9 +613,9 @@ fn build_insert_method_parsed(
     table_name: &str,
     pk_fields: &[&ParsedField],
     non_pk_fields: &[&ParsedField],
-    query_macro: bool,
+    use_macro: bool,
 ) -> TokenStream {
-    if query_macro {
+    if use_macro {
         let macro_args: Vec<TokenStream> = non_pk_fields
             .iter()
             .map(|f| {
@@ -1280,5 +1286,97 @@ mod tests {
         assert!(code.contains(".bind("));
         assert!(!code.contains("query_as!("));
         assert!(!code.contains("query!("));
+    }
+
+    // --- sql_array fallback: macro mode + array field → runtime for SELECT, macro for DELETE ---
+
+    fn entity_with_sql_array() -> ParsedEntity {
+        ParsedEntity {
+            struct_name: "AgentConnector".to_string(),
+            table_name: "agent.agent_connector".to_string(),
+            schema_name: Some("agent".to_string()),
+            is_view: false,
+            fields: vec![
+                ParsedField {
+                    rust_name: "connector_id".to_string(),
+                    column_name: "connector_id".to_string(),
+                    rust_type: "Uuid".to_string(),
+                    inner_type: "Uuid".to_string(),
+                    is_nullable: false,
+                    is_primary_key: true,
+                    sql_type: None,
+                    is_sql_array: false,
+                },
+                ParsedField {
+                    rust_name: "agent_id".to_string(),
+                    column_name: "agent_id".to_string(),
+                    rust_type: "Uuid".to_string(),
+                    inner_type: "Uuid".to_string(),
+                    is_nullable: false,
+                    is_primary_key: false,
+                    sql_type: None,
+                    is_sql_array: false,
+                },
+                ParsedField {
+                    rust_name: "usages".to_string(),
+                    column_name: "usages".to_string(),
+                    rust_type: "Vec<ConnectorUsages>".to_string(),
+                    inner_type: "Vec<ConnectorUsages>".to_string(),
+                    is_nullable: false,
+                    is_primary_key: false,
+                    sql_type: Some("agent.connector_usages".to_string()),
+                    is_sql_array: true,
+                },
+            ],
+            imports: vec!["use uuid::Uuid;".to_string()],
+        }
+    }
+
+    fn gen_macro_array(entity: &ParsedEntity, db: DatabaseKind) -> String {
+        let skip = Methods::all();
+        let (tokens, _) = generate_crud_from_parsed(entity, db, "crate::models::agent_connector", &skip, true);
+        parse_and_format(&tokens)
+    }
+
+    #[test]
+    fn test_sql_array_macro_get_all_uses_runtime() {
+        let code = gen_macro_array(&entity_with_sql_array(), DatabaseKind::Postgres);
+        // get_all should use runtime query_as, not macro
+        assert!(code.contains("query_as::<"));
+    }
+
+    #[test]
+    fn test_sql_array_macro_get_uses_runtime() {
+        let code = gen_macro_array(&entity_with_sql_array(), DatabaseKind::Postgres);
+        // get should use .bind( since it's runtime
+        assert!(code.contains(".bind("));
+    }
+
+    #[test]
+    fn test_sql_array_macro_insert_uses_runtime() {
+        let code = gen_macro_array(&entity_with_sql_array(), DatabaseKind::Postgres);
+        // insert RETURNING should use runtime query_as
+        assert!(code.contains("query_as::<_ , AgentConnector>") || code.contains("query_as::<_, AgentConnector>"));
+    }
+
+    #[test]
+    fn test_sql_array_macro_update_uses_runtime() {
+        let code = gen_macro_array(&entity_with_sql_array(), DatabaseKind::Postgres);
+        // update RETURNING should use runtime query_as
+        assert!(code.contains("query_as::<"));
+    }
+
+    #[test]
+    fn test_sql_array_macro_delete_still_uses_macro() {
+        let code = gen_macro_array(&entity_with_sql_array(), DatabaseKind::Postgres);
+        // delete uses query! macro (no rows returned, no array issue)
+        assert!(code.contains("query!"));
+    }
+
+    #[test]
+    fn test_sql_array_no_query_as_macro() {
+        let code = gen_macro_array(&entity_with_sql_array(), DatabaseKind::Postgres);
+        // Should NOT contain query_as! macro (only query_as::<_ for runtime)
+        assert!(!code.contains("query_as!("));
     }
 }

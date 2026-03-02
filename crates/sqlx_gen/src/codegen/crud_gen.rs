@@ -20,7 +20,10 @@ pub fn generate_crud_from_parsed(
     let repo_name = format!("{}Repository", entity.struct_name);
     let repo_ident = format_ident!("{}", repo_name);
 
-    let table_name = &entity.table_name;
+    let table_name = match &entity.schema_name {
+        Some(schema) => format!("{}.{}", schema, entity.table_name),
+        None => entity.table_name.clone(),
+    };
 
     // Pool type (used via full path sqlx::PgPool etc., no import needed)
     let pool_type = pool_type_tokens(db_kind);
@@ -29,7 +32,7 @@ pub fn generate_crud_from_parsed(
     // query_as! macro can't resolve the column type at compile time. Fall back to runtime query_as::<_, T>()
     // for queries that return rows. DELETE (no rows returned) can still use macro.
     let has_custom_sql_type = entity.fields.iter().any(|f| f.sql_type.is_some());
-    let use_macro = query_macro && !has_custom_sql_type;
+    let use_macro = query_macro && !has_custom_sql_type && !entity.is_view;
 
     // Entity import
     imports.insert(format!("use {}::{};", entity_module_path, entity.struct_name));
@@ -182,7 +185,7 @@ pub fn generate_crud_from_parsed(
             .map(|f| {
                 let name = format_ident!("{}", f.rust_name);
                 let ty: TokenStream = f.inner_type.parse().unwrap();
-                quote! { #name: &#ty }
+                quote! { #name: #ty }
             })
             .collect();
 
@@ -278,7 +281,7 @@ pub fn generate_crud_from_parsed(
             &sql_macro,
             &binds,
             db_kind,
-            table_name,
+            &table_name,
             &pk_fields,
             &non_pk_fields,
             use_macro,
@@ -456,7 +459,7 @@ pub fn generate_crud_from_parsed(
             .map(|f| {
                 let name = format_ident!("{}", f.rust_name);
                 let ty: TokenStream = f.inner_type.parse().unwrap();
-                quote! { #name: &#ty }
+                quote! { #name: #ty }
             })
             .collect();
 

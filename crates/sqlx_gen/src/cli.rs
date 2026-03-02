@@ -132,6 +132,10 @@ pub struct CrudArgs {
     #[arg(short = 'q', long)]
     pub query_macro: bool,
 
+    /// Visibility of the pool field in generated repository structs: private, pub, pub(crate)
+    #[arg(short = 'p', long, default_value = "private")]
+    pub pool_visibility: PoolVisibility,
+
     /// Print to stdout without writing files
     #[arg(short = 'n', long)]
     pub dry_run: bool,
@@ -189,6 +193,30 @@ pub enum DatabaseKind {
     Postgres,
     Mysql,
     Sqlite,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PoolVisibility {
+    #[default]
+    Private,
+    Pub,
+    PubCrate,
+}
+
+impl std::str::FromStr for PoolVisibility {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "private" => Ok(Self::Private),
+            "pub" => Ok(Self::Pub),
+            "pub(crate)" => Ok(Self::PubCrate),
+            other => Err(format!(
+                "Unknown pool visibility '{}'. Expected: private, pub, pub(crate)",
+                other
+            )),
+        }
+    }
 }
 
 /// Which CRUD methods to generate. All fields default to `false`.

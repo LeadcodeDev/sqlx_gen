@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
-use crate::cli::{DatabaseKind, Methods};
+use crate::cli::{DatabaseKind, Methods, PoolVisibility};
 use crate::codegen::entity_parser::{ParsedEntity, ParsedField};
 
 pub fn generate_crud_from_parsed(
@@ -12,6 +12,7 @@ pub fn generate_crud_from_parsed(
     entity_module_path: &str,
     methods: &Methods,
     query_macro: bool,
+    pool_visibility: PoolVisibility,
 ) -> (TokenStream, BTreeSet<String>) {
     let mut imports = BTreeSet::new();
 
@@ -502,11 +503,17 @@ pub fn generate_crud_from_parsed(
         method_tokens.push(method);
     }
 
+    let pool_vis: TokenStream = match pool_visibility {
+        PoolVisibility::Private => quote! {},
+        PoolVisibility::Pub => quote! { pub },
+        PoolVisibility::PubCrate => quote! { pub(crate) },
+    };
+
     let tokens = quote! {
         #(#param_structs)*
 
         pub struct #repo_ident {
-            pool: #pool_type,
+            #pool_vis pool: #pool_type,
         }
 
         impl #repo_ident {
@@ -742,18 +749,18 @@ mod tests {
 
     fn gen(entity: &ParsedEntity, db: DatabaseKind) -> String {
         let skip = Methods::all();
-        let (tokens, _) = generate_crud_from_parsed(entity, db, "crate::models::users", &skip, false);
+        let (tokens, _) = generate_crud_from_parsed(entity, db, "crate::models::users", &skip, false, PoolVisibility::Private);
         parse_and_format(&tokens)
     }
 
     fn gen_macro(entity: &ParsedEntity, db: DatabaseKind) -> String {
         let skip = Methods::all();
-        let (tokens, _) = generate_crud_from_parsed(entity, db, "crate::models::users", &skip, true);
+        let (tokens, _) = generate_crud_from_parsed(entity, db, "crate::models::users", &skip, true, PoolVisibility::Private);
         parse_and_format(&tokens)
     }
 
     fn gen_with_methods(entity: &ParsedEntity, db: DatabaseKind, methods: &Methods) -> String {
-        let (tokens, _) = generate_crud_from_parsed(entity, db, "crate::models::users", methods, false);
+        let (tokens, _) = generate_crud_from_parsed(entity, db, "crate::models::users", methods, false, PoolVisibility::Private);
         parse_and_format(&tokens)
     }
 
@@ -775,6 +782,30 @@ mod tests {
     fn test_repo_pool_field_pg() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
         assert!(code.contains("pool: sqlx::PgPool") || code.contains("pool: sqlx :: PgPool"));
+    }
+
+    #[test]
+    fn test_repo_pool_field_pub() {
+        let skip = Methods::all();
+        let (tokens, _) = generate_crud_from_parsed(&standard_entity(), DatabaseKind::Postgres, "crate::models::users", &skip, false, PoolVisibility::Pub);
+        let code = parse_and_format(&tokens);
+        assert!(code.contains("pub pool: sqlx::PgPool") || code.contains("pub pool: sqlx :: PgPool"));
+    }
+
+    #[test]
+    fn test_repo_pool_field_pub_crate() {
+        let skip = Methods::all();
+        let (tokens, _) = generate_crud_from_parsed(&standard_entity(), DatabaseKind::Postgres, "crate::models::users", &skip, false, PoolVisibility::PubCrate);
+        let code = parse_and_format(&tokens);
+        assert!(code.contains("pub(crate) pool: sqlx::PgPool") || code.contains("pub(crate) pool: sqlx :: PgPool"));
+    }
+
+    #[test]
+    fn test_repo_pool_field_private() {
+        let code = gen(&standard_entity(), DatabaseKind::Postgres);
+        // Should NOT have `pub pool` or `pub(crate) pool`
+        assert!(!code.contains("pub pool"));
+        assert!(!code.contains("pub(crate) pool"));
     }
 
     #[test]
@@ -1117,14 +1148,14 @@ mod tests {
     #[test]
     fn test_no_pool_import() {
         let skip = Methods::all();
-        let (_, imports) = generate_crud_from_parsed(&standard_entity(), DatabaseKind::Postgres, "crate::models::users", &skip, false);
+        let (_, imports) = generate_crud_from_parsed(&standard_entity(), DatabaseKind::Postgres, "crate::models::users", &skip, false, PoolVisibility::Private);
         assert!(!imports.iter().any(|i| i.contains("PgPool")));
     }
 
     #[test]
     fn test_imports_contain_entity() {
         let skip = Methods::all();
-        let (_, imports) = generate_crud_from_parsed(&standard_entity(), DatabaseKind::Postgres, "crate::models::users", &skip, false);
+        let (_, imports) = generate_crud_from_parsed(&standard_entity(), DatabaseKind::Postgres, "crate::models::users", &skip, false, PoolVisibility::Private);
         assert!(imports.iter().any(|i| i.contains("crate::models::users::Users")));
     }
 
@@ -1214,7 +1245,7 @@ mod tests {
             ],
         };
         let skip = Methods::all();
-        let (_, imports) = generate_crud_from_parsed(&entity, DatabaseKind::Postgres, "crate::models::users", &skip, false);
+        let (_, imports) = generate_crud_from_parsed(&entity, DatabaseKind::Postgres, "crate::models::users", &skip, false, PoolVisibility::Private);
         assert!(imports.iter().any(|i| i.contains("chrono")));
         assert!(imports.iter().any(|i| i.contains("uuid")));
     }
@@ -1222,7 +1253,7 @@ mod tests {
     #[test]
     fn test_entity_imports_empty_when_no_imports() {
         let skip = Methods::all();
-        let (_, imports) = generate_crud_from_parsed(&standard_entity(), DatabaseKind::Postgres, "crate::models::users", &skip, false);
+        let (_, imports) = generate_crud_from_parsed(&standard_entity(), DatabaseKind::Postgres, "crate::models::users", &skip, false, PoolVisibility::Private);
         // Should only have pool + entity imports, no chrono/uuid
         assert!(!imports.iter().any(|i| i.contains("chrono")));
         assert!(!imports.iter().any(|i| i.contains("uuid")));
@@ -1343,7 +1374,7 @@ mod tests {
 
     fn gen_macro_array(entity: &ParsedEntity, db: DatabaseKind) -> String {
         let skip = Methods::all();
-        let (tokens, _) = generate_crud_from_parsed(entity, db, "crate::models::agent_connector", &skip, true);
+        let (tokens, _) = generate_crud_from_parsed(entity, db, "crate::models::agent_connector", &skip, true, PoolVisibility::Private);
         parse_and_format(&tokens)
     }
 
@@ -1426,7 +1457,7 @@ mod tests {
     #[test]
     fn test_sql_enum_macro_uses_runtime() {
         let skip = Methods::all();
-        let (tokens, _) = generate_crud_from_parsed(&entity_with_sql_enum(), DatabaseKind::Postgres, "crate::models::task", &skip, true);
+        let (tokens, _) = generate_crud_from_parsed(&entity_with_sql_enum(), DatabaseKind::Postgres, "crate::models::task", &skip, true, PoolVisibility::Private);
         let code = parse_and_format(&tokens);
         // SELECT queries should use runtime query_as, not macro
         assert!(code.contains("query_as::<"));
@@ -1436,7 +1467,7 @@ mod tests {
     #[test]
     fn test_sql_enum_macro_delete_still_uses_macro() {
         let skip = Methods::all();
-        let (tokens, _) = generate_crud_from_parsed(&entity_with_sql_enum(), DatabaseKind::Postgres, "crate::models::task", &skip, true);
+        let (tokens, _) = generate_crud_from_parsed(&entity_with_sql_enum(), DatabaseKind::Postgres, "crate::models::task", &skip, true, PoolVisibility::Private);
         let code = parse_and_format(&tokens);
         // DELETE still uses query! macro
         assert!(code.contains("query!"));
@@ -1489,7 +1520,7 @@ mod tests {
     #[test]
     fn test_vec_string_macro_insert_uses_as_slice() {
         let skip = Methods::all();
-        let (tokens, _) = generate_crud_from_parsed(&entity_with_vec_string(), DatabaseKind::Postgres, "crate::models::prompt_history", &skip, true);
+        let (tokens, _) = generate_crud_from_parsed(&entity_with_vec_string(), DatabaseKind::Postgres, "crate::models::prompt_history", &skip, true, PoolVisibility::Private);
         let code = parse_and_format(&tokens);
         assert!(code.contains("as_slice()"));
     }
@@ -1497,7 +1528,7 @@ mod tests {
     #[test]
     fn test_vec_string_macro_update_uses_as_slice() {
         let skip = Methods::all();
-        let (tokens, _) = generate_crud_from_parsed(&entity_with_vec_string(), DatabaseKind::Postgres, "crate::models::prompt_history", &skip, true);
+        let (tokens, _) = generate_crud_from_parsed(&entity_with_vec_string(), DatabaseKind::Postgres, "crate::models::prompt_history", &skip, true, PoolVisibility::Private);
         let code = parse_and_format(&tokens);
         // Should have as_slice() for both insert and update
         let count = code.matches("as_slice()").count();
@@ -1507,7 +1538,7 @@ mod tests {
     #[test]
     fn test_vec_string_non_macro_no_as_slice() {
         let skip = Methods::all();
-        let (tokens, _) = generate_crud_from_parsed(&entity_with_vec_string(), DatabaseKind::Postgres, "crate::models::prompt_history", &skip, false);
+        let (tokens, _) = generate_crud_from_parsed(&entity_with_vec_string(), DatabaseKind::Postgres, "crate::models::prompt_history", &skip, false, PoolVisibility::Private);
         let code = parse_and_format(&tokens);
         // Runtime mode uses .bind() so no as_slice needed
         assert!(!code.contains("as_slice()"));
@@ -1530,7 +1561,7 @@ mod tests {
         "#;
         let entity = parse_entity_source(source).unwrap();
         let skip = Methods::all();
-        let (tokens, _) = generate_crud_from_parsed(&entity, DatabaseKind::Postgres, "crate::models::prompt_history", &skip, true);
+        let (tokens, _) = generate_crud_from_parsed(&entity, DatabaseKind::Postgres, "crate::models::prompt_history", &skip, true, PoolVisibility::Private);
         let code = parse_and_format(&tokens);
         assert!(code.contains("as_slice()"), "Expected as_slice() in generated code:\n{}", code);
     }

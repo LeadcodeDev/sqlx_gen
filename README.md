@@ -146,6 +146,18 @@ The `--entities-module` (`-e`) option is **optional**. When omitted, the module 
 
 Views are automatically detected via the `#[sqlx_gen(kind = "view")]` annotation — write methods (`insert`, `update`, `delete`) are never generated for views even if requested.
 
+### Pool field visibility
+
+By default, the `pool` field in generated repositories is private. Use `--pool-visibility` (`-p`) to change it:
+
+```sh
+# Public pool field
+sqlx-gen generate crud -f src/models/users.rs -d postgres -m '*' -p pub
+
+# Crate-visible pool field
+sqlx-gen generate crud -f src/models/users.rs -d postgres -m '*' -p 'pub(crate)'
+```
+
 ### Compile-time checked macros
 
 By default, the CRUD generator uses `sqlx::query_as::<_, T>()` with `.bind()` chains (runtime). Pass `--query-macro` (`-q`) to generate `sqlx::query_as!()` / `sqlx::query!()` macros instead, which are checked at compile time (requires `DATABASE_URL` at build time).
@@ -180,6 +192,7 @@ Generated files are automatically formatted with `rustfmt`. The Rust edition is 
 | `--output-dir` | `-o` | Output directory | `src/crud` |
 | `--methods` | `-m` | Methods to generate (comma-separated): `*`, `get_all`, `paginate`, `get`, `insert`, `update`, `delete` | required |
 | `--query-macro` | `-q` | Use `sqlx::query_as!()` macros (compile-time checked) | `false` |
+| `--pool-visibility` | `-p` | Visibility of the `pool` field: `private`, `pub`, `pub(crate)` | `private` |
 | `--dry-run` | `-n` | Print to stdout, don't write files | `false` |
 
 ## Example Output

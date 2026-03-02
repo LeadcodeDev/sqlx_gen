@@ -139,6 +139,7 @@ fn run_crud(args: CrudArgs) -> Result<()> {
         &entities_module,
         &methods,
         args.query_macro,
+        args.pool_visibility,
     );
 
     let code = codegen::format_tokens_with_imports(&tokens, &imports);

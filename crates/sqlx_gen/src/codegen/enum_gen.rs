@@ -85,10 +85,13 @@ pub fn generate_enum(
         quote! {}
     };
 
+    let schema_name_str = &enum_info.schema_name;
+    let enum_name_str = &enum_info.name;
+
     let tokens = quote! {
         #[doc = #doc]
         #[derive(#(#derive_tokens),*)]
-        #[sqlx_gen(kind = "enum")]
+        #[sqlx_gen(kind = "enum", schema = #schema_name_str, name = #enum_name_str)]
         #type_attr
         pub enum #enum_name {
             #(#variants)*
@@ -150,6 +153,25 @@ mod tests {
         let e = make_enum("status", vec!["a"]);
         let code = gen(&e, DatabaseKind::Postgres);
         assert!(code.contains("Enum: public.status"));
+    }
+
+    #[test]
+    fn test_sqlx_gen_attr_has_schema_and_name() {
+        let e = make_enum("status", vec!["a"]);
+        let code = gen(&e, DatabaseKind::Postgres);
+        assert!(code.contains("sqlx_gen(kind = \"enum\", schema = \"public\", name = \"status\")"));
+    }
+
+    #[test]
+    fn test_sqlx_gen_attr_non_public_schema() {
+        let e = EnumInfo {
+            schema_name: "auth".to_string(),
+            name: "role".to_string(),
+            variants: vec!["admin".to_string(), "user".to_string()],
+            default_variant: None,
+        };
+        let code = gen(&e, DatabaseKind::Postgres);
+        assert!(code.contains("sqlx_gen(kind = \"enum\", schema = \"auth\", name = \"role\")"));
     }
 
     // --- sqlx attributes ---

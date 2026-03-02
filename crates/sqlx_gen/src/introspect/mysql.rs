@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::error::Result;
 use sqlx::MySqlPool;
 
@@ -9,11 +11,17 @@ pub async fn introspect(
     include_views: bool,
 ) -> Result<SchemaInfo> {
     let tables = fetch_tables(pool, schemas).await?;
-    let views = if include_views {
+    let mut views = if include_views {
         fetch_views(pool, schemas).await?
     } else {
         Vec::new()
     };
+
+    if !views.is_empty() {
+        let sources = fetch_view_column_sources(pool, schemas).await?;
+        resolve_view_nullability(&mut views, &sources, &tables);
+    }
+
     let enums = extract_enums(&tables);
 
     Ok(SchemaInfo {
@@ -139,6 +147,105 @@ async fn fetch_views(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableIn
     }
 
     Ok(views)
+}
+
+struct ViewColumnSource {
+    view_schema: String,
+    view_name: String,
+    table_schema: String,
+    table_name: String,
+    column_name: String,
+}
+
+async fn fetch_view_column_sources(
+    pool: &MySqlPool,
+    schemas: &[String],
+) -> Result<Vec<ViewColumnSource>> {
+    let placeholders: Vec<String> = (0..schemas.len()).map(|_| "?".to_string()).collect();
+    let query = format!(
+        r#"
+        SELECT
+            vcu.VIEW_SCHEMA,
+            vcu.VIEW_NAME,
+            vcu.TABLE_SCHEMA,
+            vcu.TABLE_NAME,
+            vcu.COLUMN_NAME
+        FROM INFORMATION_SCHEMA.VIEW_COLUMN_USAGE vcu
+        WHERE vcu.VIEW_SCHEMA IN ({})
+        "#,
+        placeholders.join(",")
+    );
+
+    let mut q = sqlx::query_as::<_, (String, String, String, String, String)>(&query);
+    for schema in schemas {
+        q = q.bind(schema);
+    }
+
+    match q.fetch_all(pool).await {
+        Ok(rows) => Ok(rows
+            .into_iter()
+            .map(
+                |(view_schema, view_name, table_schema, table_name, column_name)| {
+                    ViewColumnSource {
+                        view_schema,
+                        view_name,
+                        table_schema,
+                        table_name,
+                        column_name,
+                    }
+                },
+            )
+            .collect()),
+        Err(_) => {
+            // VIEW_COLUMN_USAGE may not exist on older MySQL versions
+            Ok(Vec::new())
+        }
+    }
+}
+
+fn resolve_view_nullability(
+    views: &mut [TableInfo],
+    sources: &[ViewColumnSource],
+    tables: &[TableInfo],
+) {
+    // Build table column lookup: (schema, table, column) -> is_nullable
+    let mut table_lookup: HashMap<(&str, &str, &str), bool> = HashMap::new();
+    for table in tables {
+        for col in &table.columns {
+            table_lookup.insert(
+                (&table.schema_name, &table.name, &col.name),
+                col.is_nullable,
+            );
+        }
+    }
+
+    // Build view column source lookup: (view_schema, view_name, column_name) -> Vec<is_nullable>
+    let mut view_lookup: HashMap<(&str, &str, &str), Vec<bool>> = HashMap::new();
+    for src in sources {
+        if let Some(&is_nullable) =
+            table_lookup.get(&(src.table_schema.as_str(), src.table_name.as_str(), src.column_name.as_str()))
+        {
+            view_lookup
+                .entry((&src.view_schema, &src.view_name, &src.column_name))
+                .or_default()
+                .push(is_nullable);
+        }
+    }
+
+    for view in views.iter_mut() {
+        for col in view.columns.iter_mut() {
+            if let Some(nullable_flags) = view_lookup.get(&(
+                view.schema_name.as_str(),
+                view.name.as_str(),
+                col.name.as_str(),
+            )) {
+                // Only mark as non-nullable if ALL sources are NOT nullable
+                if !nullable_flags.is_empty() && nullable_flags.iter().all(|&n| !n) {
+                    col.is_nullable = false;
+                }
+            }
+        }
+    }
 }
 
 /// Extract inline ENUMs from column types.
@@ -338,5 +445,124 @@ mod tests {
         )];
         let enums = extract_enums(&tables);
         assert_eq!(enums.len(), 1);
+    }
+
+    // ========== resolve_view_nullability ==========
+
+    fn make_view(schema: &str, name: &str, columns: Vec<&str>) -> TableInfo {
+        TableInfo {
+            schema_name: schema.to_string(),
+            name: name.to_string(),
+            columns: columns
+                .into_iter()
+                .enumerate()
+                .map(|(i, col)| ColumnInfo {
+                    name: col.to_string(),
+                    data_type: "varchar".to_string(),
+                    udt_name: "varchar(255)".to_string(),
+                    is_nullable: true,
+                    is_primary_key: false,
+                    ordinal_position: i as i32,
+                    schema_name: schema.to_string(),
+                    column_default: None,
+                })
+                .collect(),
+        }
+    }
+
+    fn make_table_with_nullability(
+        schema: &str,
+        name: &str,
+        columns: Vec<(&str, bool)>,
+    ) -> TableInfo {
+        TableInfo {
+            schema_name: schema.to_string(),
+            name: name.to_string(),
+            columns: columns
+                .into_iter()
+                .enumerate()
+                .map(|(i, (col, nullable))| ColumnInfo {
+                    name: col.to_string(),
+                    data_type: "varchar".to_string(),
+                    udt_name: "varchar(255)".to_string(),
+                    is_nullable: nullable,
+                    is_primary_key: false,
+                    ordinal_position: i as i32,
+                    schema_name: schema.to_string(),
+                    column_default: None,
+                })
+                .collect(),
+        }
+    }
+
+    fn make_source(
+        view_schema: &str,
+        view_name: &str,
+        table_schema: &str,
+        table_name: &str,
+        column_name: &str,
+    ) -> ViewColumnSource {
+        ViewColumnSource {
+            view_schema: view_schema.to_string(),
+            view_name: view_name.to_string(),
+            table_schema: table_schema.to_string(),
+            table_name: table_name.to_string(),
+            column_name: column_name.to_string(),
+        }
+    }
+
+    #[test]
+    fn test_resolve_not_null_column() {
+        let tables = vec![make_table_with_nullability(
+            "db",
+            "users",
+            vec![("id", false), ("name", false)],
+        )];
+        let mut views = vec![make_view("db", "my_view", vec!["id", "name"])];
+        let sources = vec![
+            make_source("db", "my_view", "db", "users", "id"),
+            make_source("db", "my_view", "db", "users", "name"),
+        ];
+        resolve_view_nullability(&mut views, &sources, &tables);
+        assert!(!views[0].columns[0].is_nullable);
+        assert!(!views[0].columns[1].is_nullable);
+    }
+
+    #[test]
+    fn test_resolve_nullable_source() {
+        let tables = vec![make_table_with_nullability(
+            "db",
+            "users",
+            vec![("id", false), ("name", true)],
+        )];
+        let mut views = vec![make_view("db", "my_view", vec!["id", "name"])];
+        let sources = vec![
+            make_source("db", "my_view", "db", "users", "id"),
+            make_source("db", "my_view", "db", "users", "name"),
+        ];
+        resolve_view_nullability(&mut views, &sources, &tables);
+        assert!(!views[0].columns[0].is_nullable);
+        assert!(views[0].columns[1].is_nullable);
+    }
+
+    #[test]
+    fn test_resolve_no_match_stays_nullable() {
+        let tables = vec![make_table_with_nullability(
+            "db",
+            "users",
+            vec![("id", false)],
+        )];
+        let mut views = vec![make_view("db", "my_view", vec!["computed"])];
+        let sources = vec![];
+        resolve_view_nullability(&mut views, &sources, &tables);
+        assert!(views[0].columns[0].is_nullable);
+    }
+
+    #[test]
+    fn test_resolve_empty_sources() {
+        let tables = vec![];
+        let mut views = vec![make_view("db", "my_view", vec!["id"])];
+        resolve_view_nullability(&mut views, &[], &tables);
+        assert!(views[0].columns[0].is_nullable);
     }
 }

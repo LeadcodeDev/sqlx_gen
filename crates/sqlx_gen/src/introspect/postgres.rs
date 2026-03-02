@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::error::Result;
 use sqlx::PgPool;
 
@@ -9,11 +11,17 @@ pub async fn introspect(
     include_views: bool,
 ) -> Result<SchemaInfo> {
     let tables = fetch_tables(pool, schemas).await?;
-    let views = if include_views {
+    let mut views = if include_views {
         fetch_views(pool, schemas).await?
     } else {
         Vec::new()
     };
+
+    if !views.is_empty() {
+        let nullability_info = fetch_view_column_nullability(pool, schemas).await?;
+        resolve_view_nullability(&mut views, &nullability_info);
+    }
+
     let enums = fetch_enums(pool, schemas).await?;
     let composite_types = fetch_composite_types(pool, schemas).await?;
     let domains = fetch_domains(pool, schemas).await?;
@@ -142,6 +150,86 @@ async fn fetch_views(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo>
     Ok(views)
 }
 
+struct ViewColumnNullability {
+    view_schema: String,
+    view_name: String,
+    source_column_name: String,
+    source_not_null: bool,
+}
+
+async fn fetch_view_column_nullability(
+    pool: &PgPool,
+    schemas: &[String],
+) -> Result<Vec<ViewColumnNullability>> {
+    let rows = sqlx::query_as::<_, (String, String, String, bool)>(
+        r#"
+        SELECT DISTINCT
+            v_ns.nspname AS view_schema,
+            v.relname AS view_name,
+            src_attr.attname AS source_column_name,
+            src_attr.attnotnull AS source_not_null
+        FROM pg_class v
+        JOIN pg_namespace v_ns ON v_ns.oid = v.relnamespace
+        JOIN pg_rewrite rw ON rw.ev_class = v.oid
+        JOIN pg_depend d ON d.objid = rw.oid
+            AND d.classid = 'pg_rewrite'::regclass
+            AND d.refobjsubid > 0
+            AND d.deptype = 'n'
+        JOIN pg_attribute src_attr ON src_attr.attrelid = d.refobjid
+            AND src_attr.attnum = d.refobjsubid
+            AND NOT src_attr.attisdropped
+        WHERE v_ns.nspname = ANY($1)
+          AND v.relkind = 'v'
+        "#,
+    )
+    .bind(schemas)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(
+            |(view_schema, view_name, source_column_name, source_not_null)| {
+                ViewColumnNullability {
+                    view_schema,
+                    view_name,
+                    source_column_name,
+                    source_not_null,
+                }
+            },
+        )
+        .collect())
+}
+
+fn resolve_view_nullability(
+    views: &mut [TableInfo],
+    nullability_info: &[ViewColumnNullability],
+) {
+    // Build lookup: (view_schema, view_name, column_name) -> Vec<is_not_null>
+    let mut lookup: HashMap<(&str, &str, &str), Vec<bool>> = HashMap::new();
+    for info in nullability_info {
+        lookup
+            .entry((&info.view_schema, &info.view_name, &info.source_column_name))
+            .or_default()
+            .push(info.source_not_null);
+    }
+
+    for view in views.iter_mut() {
+        for col in view.columns.iter_mut() {
+            if let Some(not_null_flags) = lookup.get(&(
+                view.schema_name.as_str(),
+                view.name.as_str(),
+                col.name.as_str(),
+            )) {
+                // Only mark as non-nullable if ALL source columns are NOT NULL
+                if !not_null_flags.is_empty() && not_null_flags.iter().all(|&nn| nn) {
+                    col.is_nullable = false;
+                }
+            }
+        }
+    }
+}
+
 async fn fetch_enums(pool: &PgPool, schemas: &[String]) -> Result<Vec<EnumInfo>> {
     let rows = sqlx::query_as::<_, (String, String, String)>(
         r#"
@@ -266,4 +354,97 @@ async fn fetch_domains(pool: &PgPool, schemas: &[String]) -> Result<Vec<DomainIn
             base_type,
         })
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_view(schema: &str, name: &str, columns: Vec<&str>) -> TableInfo {
+        TableInfo {
+            schema_name: schema.to_string(),
+            name: name.to_string(),
+            columns: columns
+                .into_iter()
+                .enumerate()
+                .map(|(i, col)| ColumnInfo {
+                    name: col.to_string(),
+                    data_type: "text".to_string(),
+                    udt_name: "text".to_string(),
+                    is_nullable: true,
+                    is_primary_key: false,
+                    ordinal_position: i as i32,
+                    schema_name: schema.to_string(),
+                    column_default: None,
+                })
+                .collect(),
+        }
+    }
+
+    fn make_nullability(
+        view_schema: &str,
+        view_name: &str,
+        source_column: &str,
+        not_null: bool,
+    ) -> ViewColumnNullability {
+        ViewColumnNullability {
+            view_schema: view_schema.to_string(),
+            view_name: view_name.to_string(),
+            source_column_name: source_column.to_string(),
+            source_not_null: not_null,
+        }
+    }
+
+    #[test]
+    fn test_resolve_not_null_column() {
+        let mut views = vec![make_view("public", "my_view", vec!["id", "name"])];
+        let info = vec![
+            make_nullability("public", "my_view", "id", true),
+            make_nullability("public", "my_view", "name", true),
+        ];
+        resolve_view_nullability(&mut views, &info);
+        assert!(!views[0].columns[0].is_nullable);
+        assert!(!views[0].columns[1].is_nullable);
+    }
+
+    #[test]
+    fn test_resolve_mixed_sources() {
+        let mut views = vec![make_view("public", "my_view", vec!["id"])];
+        let info = vec![
+            make_nullability("public", "my_view", "id", true),
+            make_nullability("public", "my_view", "id", false),
+        ];
+        resolve_view_nullability(&mut views, &info);
+        assert!(views[0].columns[0].is_nullable);
+    }
+
+    #[test]
+    fn test_resolve_no_match_stays_nullable() {
+        let mut views = vec![make_view("public", "my_view", vec!["computed_col"])];
+        let info = vec![make_nullability("public", "my_view", "id", true)];
+        resolve_view_nullability(&mut views, &info);
+        assert!(views[0].columns[0].is_nullable);
+    }
+
+    #[test]
+    fn test_resolve_empty_info() {
+        let mut views = vec![make_view("public", "my_view", vec!["id"])];
+        resolve_view_nullability(&mut views, &[]);
+        assert!(views[0].columns[0].is_nullable);
+    }
+
+    #[test]
+    fn test_resolve_cross_schema() {
+        let mut views = vec![
+            make_view("public", "v1", vec!["id"]),
+            make_view("auth", "v2", vec!["id"]),
+        ];
+        let info = vec![
+            make_nullability("public", "v1", "id", true),
+            make_nullability("auth", "v2", "id", false),
+        ];
+        resolve_view_nullability(&mut views, &info);
+        assert!(!views[0].columns[0].is_nullable);
+        assert!(views[1].columns[0].is_nullable);
+    }
 }

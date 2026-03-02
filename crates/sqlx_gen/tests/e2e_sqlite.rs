@@ -110,7 +110,7 @@ async fn test_view_origin_contains_view() {
     let schema = introspect(&pool, true).await.unwrap();
     let files = codegen::generate(&schema, DatabaseKind::Sqlite, &[], &HashMap::new(), false);
     let view_file = files.iter().find(|f| f.filename == "v.rs").unwrap();
-    assert_eq!(view_file.origin, Some("View: main.v".to_string()));
+    assert_eq!(view_file.origin, None);
 }
 
 #[tokio::test]
@@ -189,7 +189,7 @@ async fn test_exclude_view() {
     let exclude = ["v1".to_string()];
     schema.views.retain(|v| !exclude.contains(&v.name));
     let files = codegen::generate(&schema, DatabaseKind::Sqlite, &[], &HashMap::new(), false);
-    let view_files: Vec<_> = files.iter().filter(|f| f.origin.as_ref().is_some_and(|o| o.starts_with("View:"))).collect();
+    let view_files: Vec<_> = files.iter().filter(|f| f.code.contains("kind = \"view\"")).collect();
     assert_eq!(view_files.len(), 1);
     assert_eq!(view_files[0].filename, "v2.rs");
 }

@@ -124,10 +124,9 @@ pub fn generate(
         let imports = filter_imports(&imports, single_file);
         let code = format_tokens_with_imports(&tokens, &imports);
         let module_name = build_module_name(&table.schema_name, &table.name, colliding_names.contains(table.name.as_str()));
-        let origin = format!("Table: {}.{}", table.schema_name, table.name);
         files.push(GeneratedFile {
             filename: format!("{}.rs", module_name),
-            origin: Some(origin),
+            origin: None,
             code,
         });
     }
@@ -139,10 +138,9 @@ pub fn generate(
         let imports = filter_imports(&imports, single_file);
         let code = format_tokens_with_imports(&tokens, &imports);
         let module_name = build_module_name(&view.schema_name, &view.name, colliding_names.contains(view.name.as_str()));
-        let origin = format!("View: {}.{}", view.schema_name, view.name);
         files.push(GeneratedFile {
             filename: format!("{}.rs", module_name),
-            origin: Some(origin),
+            origin: None,
             code,
         });
     }
@@ -805,13 +803,13 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_origin_correct() {
+    fn test_generate_no_origin_for_tables() {
         let schema = SchemaInfo {
             tables: vec![make_table("users", vec![make_col("id", "int4")])],
             ..Default::default()
         };
         let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
-        assert_eq!(files[0].origin, Some("Table: public.users".to_string()));
+        assert_eq!(files[0].origin, None);
     }
 
     #[test]
@@ -949,13 +947,13 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_view_origin() {
+    fn test_generate_no_origin_for_views() {
         let schema = SchemaInfo {
             views: vec![make_view("active_users", vec![make_col("id", "int4")])],
             ..Default::default()
         };
         let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
-        assert_eq!(files[0].origin, Some("View: public.active_users".to_string()));
+        assert_eq!(files[0].origin, None);
     }
 
     #[test]

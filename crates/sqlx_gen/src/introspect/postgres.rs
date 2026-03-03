@@ -20,6 +20,9 @@ pub async fn introspect(
     if !views.is_empty() {
         let nullability_info = fetch_view_column_nullability(pool, schemas).await?;
         resolve_view_nullability(&mut views, &nullability_info);
+
+        let pk_info = fetch_view_column_primary_keys(pool, schemas).await?;
+        resolve_view_primary_keys(&mut views, &pk_info);
     }
 
     let enums = fetch_enums(pool, schemas).await?;
@@ -224,6 +227,93 @@ fn resolve_view_nullability(
                 // Only mark as non-nullable if ALL source columns are NOT NULL
                 if !not_null_flags.is_empty() && not_null_flags.iter().all(|&nn| nn) {
                     col.is_nullable = false;
+                }
+            }
+        }
+    }
+}
+
+struct ViewColumnPrimaryKey {
+    view_schema: String,
+    view_name: String,
+    source_column_name: String,
+    source_is_pk: bool,
+}
+
+async fn fetch_view_column_primary_keys(
+    pool: &PgPool,
+    schemas: &[String],
+) -> Result<Vec<ViewColumnPrimaryKey>> {
+    let rows = sqlx::query_as::<_, (String, String, String, bool)>(
+        r#"
+        SELECT DISTINCT
+            v_ns.nspname AS view_schema,
+            v.relname AS view_name,
+            src_attr.attname AS source_column_name,
+            COALESCE(
+                EXISTS (
+                    SELECT 1
+                    FROM pg_constraint con
+                    WHERE con.conrelid = src_attr.attrelid
+                      AND con.contype = 'p'
+                      AND src_attr.attnum = ANY(con.conkey)
+                ),
+                false
+            ) AS source_is_pk
+        FROM pg_class v
+        JOIN pg_namespace v_ns ON v_ns.oid = v.relnamespace
+        JOIN pg_rewrite rw ON rw.ev_class = v.oid
+        JOIN pg_depend d ON d.objid = rw.oid
+            AND d.classid = 'pg_rewrite'::regclass
+            AND d.refobjsubid > 0
+            AND d.deptype = 'n'
+        JOIN pg_attribute src_attr ON src_attr.attrelid = d.refobjid
+            AND src_attr.attnum = d.refobjsubid
+            AND NOT src_attr.attisdropped
+        WHERE v_ns.nspname = ANY($1)
+          AND v.relkind = 'v'
+        "#,
+    )
+    .bind(schemas)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(
+            |(view_schema, view_name, source_column_name, source_is_pk)| ViewColumnPrimaryKey {
+                view_schema,
+                view_name,
+                source_column_name,
+                source_is_pk,
+            },
+        )
+        .collect())
+}
+
+fn resolve_view_primary_keys(
+    views: &mut [TableInfo],
+    pk_info: &[ViewColumnPrimaryKey],
+) {
+    // Build lookup: (view_schema, view_name, column_name) -> Vec<is_pk>
+    let mut lookup: HashMap<(&str, &str, &str), Vec<bool>> = HashMap::new();
+    for info in pk_info {
+        lookup
+            .entry((&info.view_schema, &info.view_name, &info.source_column_name))
+            .or_default()
+            .push(info.source_is_pk);
+    }
+
+    for view in views.iter_mut() {
+        for col in view.columns.iter_mut() {
+            if let Some(pk_flags) = lookup.get(&(
+                view.schema_name.as_str(),
+                view.name.as_str(),
+                col.name.as_str(),
+            )) {
+                // Only mark as PK if ALL source columns are PKs
+                if !pk_flags.is_empty() && pk_flags.iter().all(|&pk| pk) {
+                    col.is_primary_key = true;
                 }
             }
         }
@@ -446,5 +536,74 @@ mod tests {
         resolve_view_nullability(&mut views, &info);
         assert!(!views[0].columns[0].is_nullable);
         assert!(views[1].columns[0].is_nullable);
+    }
+
+    // --- resolve_view_primary_keys tests ---
+
+    fn make_pk_info(
+        view_schema: &str,
+        view_name: &str,
+        source_column: &str,
+        is_pk: bool,
+    ) -> ViewColumnPrimaryKey {
+        ViewColumnPrimaryKey {
+            view_schema: view_schema.to_string(),
+            view_name: view_name.to_string(),
+            source_column_name: source_column.to_string(),
+            source_is_pk: is_pk,
+        }
+    }
+
+    #[test]
+    fn test_resolve_pk_column() {
+        let mut views = vec![make_view("public", "my_view", vec!["id", "name"])];
+        let info = vec![
+            make_pk_info("public", "my_view", "id", true),
+            make_pk_info("public", "my_view", "name", false),
+        ];
+        resolve_view_primary_keys(&mut views, &info);
+        assert!(views[0].columns[0].is_primary_key);
+        assert!(!views[0].columns[1].is_primary_key);
+    }
+
+    #[test]
+    fn test_resolve_pk_mixed_sources() {
+        let mut views = vec![make_view("public", "my_view", vec!["id"])];
+        let info = vec![
+            make_pk_info("public", "my_view", "id", true),
+            make_pk_info("public", "my_view", "id", false),
+        ];
+        resolve_view_primary_keys(&mut views, &info);
+        assert!(!views[0].columns[0].is_primary_key);
+    }
+
+    #[test]
+    fn test_resolve_pk_no_match() {
+        let mut views = vec![make_view("public", "my_view", vec!["computed_col"])];
+        let info = vec![make_pk_info("public", "my_view", "id", true)];
+        resolve_view_primary_keys(&mut views, &info);
+        assert!(!views[0].columns[0].is_primary_key);
+    }
+
+    #[test]
+    fn test_resolve_pk_empty_info() {
+        let mut views = vec![make_view("public", "my_view", vec!["id"])];
+        resolve_view_primary_keys(&mut views, &[]);
+        assert!(!views[0].columns[0].is_primary_key);
+    }
+
+    #[test]
+    fn test_resolve_pk_cross_schema() {
+        let mut views = vec![
+            make_view("public", "v1", vec!["id"]),
+            make_view("auth", "v2", vec!["id"]),
+        ];
+        let info = vec![
+            make_pk_info("public", "v1", "id", true),
+            make_pk_info("auth", "v2", "id", false),
+        ];
+        resolve_view_primary_keys(&mut views, &info);
+        assert!(views[0].columns[0].is_primary_key);
+        assert!(!views[1].columns[0].is_primary_key);
     }
 }

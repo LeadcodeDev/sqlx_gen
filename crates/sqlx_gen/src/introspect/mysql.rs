@@ -20,6 +20,7 @@ pub async fn introspect(
     if !views.is_empty() {
         let sources = fetch_view_column_sources(pool, schemas).await?;
         resolve_view_nullability(&mut views, &sources, &tables);
+        resolve_view_primary_keys(&mut views, &sources, &tables);
     }
 
     let enums = extract_enums(&tables);
@@ -242,6 +243,51 @@ fn resolve_view_nullability(
                 // Only mark as non-nullable if ALL sources are NOT nullable
                 if !nullable_flags.is_empty() && nullable_flags.iter().all(|&n| !n) {
                     col.is_nullable = false;
+                }
+            }
+        }
+    }
+}
+
+fn resolve_view_primary_keys(
+    views: &mut [TableInfo],
+    sources: &[ViewColumnSource],
+    tables: &[TableInfo],
+) {
+    // Build table column lookup: (schema, table, column) -> is_primary_key
+    let mut table_lookup: HashMap<(&str, &str, &str), bool> = HashMap::new();
+    for table in tables {
+        for col in &table.columns {
+            table_lookup.insert(
+                (&table.schema_name, &table.name, &col.name),
+                col.is_primary_key,
+            );
+        }
+    }
+
+    // Build view column source lookup: (view_schema, view_name, column_name) -> Vec<is_pk>
+    let mut view_lookup: HashMap<(&str, &str, &str), Vec<bool>> = HashMap::new();
+    for src in sources {
+        if let Some(&is_pk) =
+            table_lookup.get(&(src.table_schema.as_str(), src.table_name.as_str(), src.column_name.as_str()))
+        {
+            view_lookup
+                .entry((&src.view_schema, &src.view_name, &src.column_name))
+                .or_default()
+                .push(is_pk);
+        }
+    }
+
+    for view in views.iter_mut() {
+        for col in view.columns.iter_mut() {
+            if let Some(pk_flags) = view_lookup.get(&(
+                view.schema_name.as_str(),
+                view.name.as_str(),
+                col.name.as_str(),
+            )) {
+                // Only mark as PK if ALL sources are PKs
+                if !pk_flags.is_empty() && pk_flags.iter().all(|&pk| pk) {
+                    col.is_primary_key = true;
                 }
             }
         }
@@ -564,5 +610,62 @@ mod tests {
         let mut views = vec![make_view("db", "my_view", vec!["id"])];
         resolve_view_nullability(&mut views, &[], &tables);
         assert!(views[0].columns[0].is_nullable);
+    }
+
+    // ========== resolve_view_primary_keys ==========
+
+    fn make_table_with_pk(
+        schema: &str,
+        name: &str,
+        columns: Vec<(&str, bool)>,
+    ) -> TableInfo {
+        TableInfo {
+            schema_name: schema.to_string(),
+            name: name.to_string(),
+            columns: columns
+                .into_iter()
+                .enumerate()
+                .map(|(i, (col, is_pk))| ColumnInfo {
+                    name: col.to_string(),
+                    data_type: "varchar".to_string(),
+                    udt_name: "varchar(255)".to_string(),
+                    is_nullable: false,
+                    is_primary_key: is_pk,
+                    ordinal_position: i as i32,
+                    schema_name: schema.to_string(),
+                    column_default: None,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn test_resolve_pk_column() {
+        let tables = vec![make_table_with_pk("db", "users", vec![("id", true), ("name", false)])];
+        let mut views = vec![make_view("db", "my_view", vec!["id", "name"])];
+        let sources = vec![
+            make_source("db", "my_view", "db", "users", "id"),
+            make_source("db", "my_view", "db", "users", "name"),
+        ];
+        resolve_view_primary_keys(&mut views, &sources, &tables);
+        assert!(views[0].columns[0].is_primary_key);
+        assert!(!views[0].columns[1].is_primary_key);
+    }
+
+    #[test]
+    fn test_resolve_pk_no_sources() {
+        let tables = vec![make_table_with_pk("db", "users", vec![("id", true)])];
+        let mut views = vec![make_view("db", "my_view", vec!["id"])];
+        resolve_view_primary_keys(&mut views, &[], &tables);
+        assert!(!views[0].columns[0].is_primary_key);
+    }
+
+    #[test]
+    fn test_resolve_pk_no_match() {
+        let tables = vec![make_table_with_pk("db", "users", vec![("id", true)])];
+        let mut views = vec![make_view("db", "my_view", vec!["computed"])];
+        let sources = vec![];
+        resolve_view_primary_keys(&mut views, &sources, &tables);
+        assert!(!views[0].columns[0].is_primary_key);
     }
 }

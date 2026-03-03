@@ -1,6 +1,6 @@
 [package]
 name = "sqlx-gen"
-version = "0.4.5"
+version = "0.4.6"
 edition = "2021"
 description = "Generate Rust structs from database schema introspection"
 license = "MIT"

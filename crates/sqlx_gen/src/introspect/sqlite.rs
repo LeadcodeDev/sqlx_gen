@@ -15,6 +15,7 @@ pub async fn introspect(pool: &SqlitePool, include_views: bool) -> Result<Schema
 
     if !views.is_empty() {
         resolve_view_nullability(&mut views, &tables);
+        resolve_view_primary_keys(&mut views, &tables);
     }
 
     Ok(SchemaInfo {
@@ -116,6 +117,30 @@ fn resolve_view_nullability(views: &mut [TableInfo], tables: &[TableInfo]) {
     }
 }
 
+/// Resolve view column primary keys by matching column names against introspected tables.
+/// If a column name is found in exactly one table and is a PK, propagate that.
+fn resolve_view_primary_keys(views: &mut [TableInfo], tables: &[TableInfo]) {
+    // Build lookup: column_name -> Vec<is_primary_key>
+    let mut col_lookup: HashMap<&str, Vec<bool>> = HashMap::new();
+    for table in tables {
+        for col in &table.columns {
+            col_lookup.entry(&col.name).or_default().push(col.is_primary_key);
+        }
+    }
+
+    for view in views.iter_mut() {
+        for col in view.columns.iter_mut() {
+            if let Some(pk_flags) = col_lookup.get(col.name.as_str()) {
+                // Only resolve if column name appears in exactly one table
+                // and that column is a PK
+                if pk_flags.len() == 1 && pk_flags[0] {
+                    col.is_primary_key = true;
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,5 +230,64 @@ mod tests {
         let mut views = vec![make_view("my_view", vec!["id"])];
         resolve_view_nullability(&mut views, &[]);
         assert!(views[0].columns[0].is_nullable);
+    }
+
+    // ========== resolve_view_primary_keys ==========
+
+    fn make_table_with_pk(name: &str, columns: Vec<(&str, bool)>) -> TableInfo {
+        TableInfo {
+            schema_name: "main".to_string(),
+            name: name.to_string(),
+            columns: columns
+                .into_iter()
+                .enumerate()
+                .map(|(i, (col, is_pk))| ColumnInfo {
+                    name: col.to_string(),
+                    data_type: "TEXT".to_string(),
+                    udt_name: "TEXT".to_string(),
+                    is_nullable: false,
+                    is_primary_key: is_pk,
+                    ordinal_position: i as i32,
+                    schema_name: "main".to_string(),
+                    column_default: None,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn test_resolve_pk_unique_match() {
+        let tables = vec![make_table_with_pk("users", vec![("id", true), ("name", false)])];
+        let mut views = vec![make_view("my_view", vec!["id", "name"])];
+        resolve_view_primary_keys(&mut views, &tables);
+        assert!(views[0].columns[0].is_primary_key);
+        assert!(!views[0].columns[1].is_primary_key);
+    }
+
+    #[test]
+    fn test_resolve_pk_ambiguous() {
+        // "id" appears in two tables — ambiguous, don't mark as PK
+        let tables = vec![
+            make_table_with_pk("users", vec![("id", true)]),
+            make_table_with_pk("orders", vec![("id", true)]),
+        ];
+        let mut views = vec![make_view("my_view", vec!["id"])];
+        resolve_view_primary_keys(&mut views, &tables);
+        assert!(!views[0].columns[0].is_primary_key);
+    }
+
+    #[test]
+    fn test_resolve_pk_no_match() {
+        let tables = vec![make_table_with_pk("users", vec![("id", true)])];
+        let mut views = vec![make_view("my_view", vec!["computed"])];
+        resolve_view_primary_keys(&mut views, &tables);
+        assert!(!views[0].columns[0].is_primary_key);
+    }
+
+    #[test]
+    fn test_resolve_pk_empty_tables() {
+        let mut views = vec![make_view("my_view", vec!["id"])];
+        resolve_view_primary_keys(&mut views, &[]);
+        assert!(!views[0].columns[0].is_primary_key);
     }
 }

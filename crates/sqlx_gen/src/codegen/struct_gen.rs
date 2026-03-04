@@ -121,7 +121,7 @@ pub fn generate_struct(
 
 /// Detect if a column uses a custom SQL type (enum or composite) and return the qualified
 /// SQL type name for casting, plus whether it's an array.
-/// Returns `(Some("schema.type_name"), true)` for arrays of custom types,
+/// Returns `(Some("type_name"), true)` for arrays of custom types,
 /// `(Some("type_name"), false)` for scalar custom types, or `(None, false)` for built-in types.
 fn detect_custom_sql_type(udt_name: &str, schema_info: &SchemaInfo) -> (Option<String>, bool) {
     let (base_name, is_array) = match udt_name.strip_prefix('_') {
@@ -130,23 +130,13 @@ fn detect_custom_sql_type(udt_name: &str, schema_info: &SchemaInfo) -> (Option<S
     };
 
     // Check enums
-    if let Some(e) = schema_info.enums.iter().find(|e| e.name == base_name) {
-        let qualified = if e.schema_name == "public" {
-            base_name.to_string()
-        } else {
-            format!("{}.{}", e.schema_name, base_name)
-        };
-        return (Some(qualified), is_array);
+    if schema_info.enums.iter().any(|e| e.name == base_name) {
+        return (Some(base_name.to_string()), is_array);
     }
 
     // Check composite types
-    if let Some(c) = schema_info.composite_types.iter().find(|c| c.name == base_name) {
-        let qualified = if c.schema_name == "public" {
-            base_name.to_string()
-        } else {
-            format!("{}.{}", c.schema_name, base_name)
-        };
-        return (Some(qualified), is_array);
+    if schema_info.composite_types.iter().any(|c| c.name == base_name) {
+        return (Some(base_name.to_string()), is_array);
     }
 
     // Check if this is a non-builtin type that would hit the typemap fallback

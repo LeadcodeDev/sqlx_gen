@@ -39,13 +39,8 @@ pub fn generate_enum(
     }
 
     // For PG, add #[sqlx(type_name = "...")]
-    // Schema-qualify the type name for non-public schemas so sqlx can find the type
     let type_attr = if db_kind == DatabaseKind::Postgres {
-        let pg_name = if enum_info.schema_name != "public" {
-            format!("{}.{}", enum_info.schema_name, enum_info.name)
-        } else {
-            enum_info.name.clone()
-        };
+        let pg_name = &enum_info.name;
         quote! { #[sqlx(type_name = #pg_name)] }
     } else {
         quote! {}
@@ -193,7 +188,7 @@ mod tests {
         };
         let (tokens, _) = generate_enum(&e, DatabaseKind::Postgres, &[]);
         let code = parse_and_format(&tokens);
-        assert!(code.contains("sqlx(type_name = \"auth.role\")"));
+        assert!(code.contains("sqlx(type_name = \"role\")"));
     }
 
     #[test]

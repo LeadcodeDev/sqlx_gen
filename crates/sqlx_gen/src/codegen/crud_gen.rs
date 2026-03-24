@@ -231,10 +231,17 @@ pub fn generate_crud_from_parsed(
     }
 
     // --- insert (skip for views) ---
-    if !is_view && methods.insert && !non_pk_fields.is_empty() {
+    if !is_view && methods.insert && (!non_pk_fields.is_empty() || !pk_fields.is_empty()) {
         let insert_params_ident = format_ident!("Insert{}Params", entity.struct_name);
 
-        let insert_fields: Vec<TokenStream> = non_pk_fields
+        // When all columns are PKs (e.g. junction tables), use pk_fields for insert
+        let insert_source_fields: Vec<&ParsedField> = if non_pk_fields.is_empty() {
+            pk_fields.clone()
+        } else {
+            non_pk_fields.clone()
+        };
+
+        let insert_fields: Vec<TokenStream> = insert_source_fields
             .iter()
             .map(|f| {
                 let name = format_ident!("{}", f.rust_name);
@@ -243,11 +250,11 @@ pub fn generate_crud_from_parsed(
             })
             .collect();
 
-        let col_names: Vec<&str> = non_pk_fields.iter().map(|f| f.column_name.as_str()).collect();
+        let col_names: Vec<&str> = insert_source_fields.iter().map(|f| f.column_name.as_str()).collect();
         let col_list = col_names.join(", ");
         // Use casted placeholders for macro mode, plain for runtime
-        let placeholders = build_placeholders(non_pk_fields.len(), db_kind, 1);
-        let placeholders_cast = build_placeholders_with_cast(&non_pk_fields, db_kind, 1, true);
+        let placeholders = build_placeholders(insert_source_fields.len(), db_kind, 1);
+        let placeholders_cast = build_placeholders_with_cast(&insert_source_fields, db_kind, 1, true);
 
         let build_insert_sql = |ph: &str| match db_kind {
             DatabaseKind::Postgres | DatabaseKind::Sqlite => {
@@ -266,7 +273,7 @@ pub fn generate_crud_from_parsed(
         let sql = build_insert_sql(&placeholders);
         let sql_macro = build_insert_sql(&placeholders_cast);
 
-        let binds: Vec<TokenStream> = non_pk_fields
+        let binds: Vec<TokenStream> = insert_source_fields
             .iter()
             .map(|f| {
                 let name = format_ident!("{}", f.rust_name);
@@ -283,7 +290,7 @@ pub fn generate_crud_from_parsed(
             db_kind,
             &table_name,
             &pk_fields,
-            &non_pk_fields,
+            &insert_source_fields,
             use_macro,
         );
         method_tokens.push(insert_method);
@@ -296,8 +303,8 @@ pub fn generate_crud_from_parsed(
         });
     }
 
-    // --- update (skip for views) ---
-    if !is_view && methods.update && !pk_fields.is_empty() {
+    // --- update (skip for views, skip when all columns are PKs — nothing to SET) ---
+    if !is_view && methods.update && !pk_fields.is_empty() && !non_pk_fields.is_empty() {
         let update_params_ident = format_ident!("Update{}Params", entity.struct_name);
 
         let update_fields: Vec<TokenStream> = entity
@@ -1567,5 +1574,52 @@ mod tests {
         let (tokens, _) = generate_crud_from_parsed(&entity, DatabaseKind::Postgres, "crate::models::prompt_history", &skip, true, PoolVisibility::Private);
         let code = parse_and_format(&tokens);
         assert!(code.contains("as_slice()"), "Expected as_slice() in generated code:\n{}", code);
+    }
+
+    // --- composite PK only (junction table) ---
+
+    fn junction_entity() -> ParsedEntity {
+        ParsedEntity {
+            struct_name: "AnalysisRecord".to_string(),
+            table_name: "analysis.analysis__record".to_string(),
+            schema_name: None,
+            is_view: false,
+            fields: vec![
+                make_field("record_id", "record_id", "uuid::Uuid", false, true),
+                make_field("analysis_id", "analysis_id", "uuid::Uuid", false, true),
+            ],
+            imports: vec![],
+        }
+    }
+
+    #[test]
+    fn test_composite_pk_only_insert_generated() {
+        let code = gen(&junction_entity(), DatabaseKind::Postgres);
+        assert!(code.contains("pub struct InsertAnalysisRecordParams"), "Expected InsertAnalysisRecordParams struct:\n{}", code);
+        assert!(code.contains("pub record_id"), "Expected record_id field in insert params:\n{}", code);
+        assert!(code.contains("pub analysis_id"), "Expected analysis_id field in insert params:\n{}", code);
+        assert!(code.contains("INSERT INTO analysis.analysis__record (record_id, analysis_id) VALUES ($1, $2) RETURNING *"), "Expected valid INSERT SQL:\n{}", code);
+        assert!(code.contains("pub async fn insert"), "Expected insert method:\n{}", code);
+    }
+
+    #[test]
+    fn test_composite_pk_only_no_update() {
+        let code = gen(&junction_entity(), DatabaseKind::Postgres);
+        assert!(!code.contains("UpdateAnalysisRecordParams"), "Expected no UpdateAnalysisRecordParams struct:\n{}", code);
+        assert!(!code.contains("pub async fn update"), "Expected no update method:\n{}", code);
+    }
+
+    #[test]
+    fn test_composite_pk_only_delete_generated() {
+        let code = gen(&junction_entity(), DatabaseKind::Postgres);
+        assert!(code.contains("pub async fn delete"), "Expected delete method:\n{}", code);
+        assert!(code.contains("DELETE FROM analysis.analysis__record WHERE record_id = $1 AND analysis_id = $2"), "Expected valid DELETE SQL:\n{}", code);
+    }
+
+    #[test]
+    fn test_composite_pk_only_get_generated() {
+        let code = gen(&junction_entity(), DatabaseKind::Postgres);
+        assert!(code.contains("pub async fn get"), "Expected get method:\n{}", code);
+        assert!(code.contains("WHERE record_id = $1 AND analysis_id = $2"), "Expected WHERE clause with both PK columns:\n{}", code);
     }
 }

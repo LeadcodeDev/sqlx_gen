@@ -4,7 +4,7 @@ use heck::{ToSnakeCase, ToUpperCamelCase};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
-use crate::cli::DatabaseKind;
+use crate::cli::{DatabaseKind, TimeCrate};
 use crate::codegen::{imports_for_derives, is_rust_keyword};
 use crate::introspect::{CompositeTypeInfo, SchemaInfo};
 use crate::typemap;
@@ -15,6 +15,7 @@ pub fn generate_composite(
     schema_info: &SchemaInfo,
     extra_derives: &[String],
     type_overrides: &HashMap<String, String>,
+    time_crate: TimeCrate,
 ) -> (TokenStream, BTreeSet<String>) {
     let mut imports = BTreeSet::new();
     for imp in imports_for_derives(extra_derives) {
@@ -51,7 +52,7 @@ pub fn generate_composite(
         .fields
         .iter()
         .map(|col| {
-            let rust_type = typemap::map_column(col, db_kind, schema_info, type_overrides);
+            let rust_type = typemap::map_column(col, db_kind, schema_info, type_overrides, time_crate);
             if let Some(imp) = &rust_type.needs_import {
                 imports.insert(imp.clone());
             }
@@ -131,7 +132,7 @@ mod tests {
 
     fn gen(composite: &CompositeTypeInfo) -> String {
         let schema = SchemaInfo::default();
-        let (tokens, _) = generate_composite(composite, DatabaseKind::Postgres, &schema, &[], &HashMap::new());
+        let (tokens, _) = generate_composite(composite, DatabaseKind::Postgres, &schema, &[], &HashMap::new(), TimeCrate::Chrono);
         parse_and_format(&tokens)
     }
 
@@ -141,7 +142,7 @@ mod tests {
         overrides: &HashMap<String, String>,
     ) -> (String, BTreeSet<String>) {
         let schema = SchemaInfo::default();
-        let (tokens, imports) = generate_composite(composite, DatabaseKind::Postgres, &schema, derives, overrides);
+        let (tokens, imports) = generate_composite(composite, DatabaseKind::Postgres, &schema, derives, overrides, TimeCrate::Chrono);
         (parse_and_format(&tokens), imports)
     }
 
@@ -187,7 +188,7 @@ mod tests {
             fields: vec![make_field("x", "float8", false)],
         };
         let schema = SchemaInfo::default();
-        let (tokens, _) = generate_composite(&c, DatabaseKind::Postgres, &schema, &[], &HashMap::new());
+        let (tokens, _) = generate_composite(&c, DatabaseKind::Postgres, &schema, &[], &HashMap::new(), TimeCrate::Chrono);
         let code = parse_and_format(&tokens);
         assert!(code.contains("sqlx(type_name = \"point\")"));
     }

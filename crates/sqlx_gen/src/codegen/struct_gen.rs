@@ -4,7 +4,7 @@ use heck::{ToSnakeCase, ToUpperCamelCase};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
-use crate::cli::DatabaseKind;
+use crate::cli::{DatabaseKind, TimeCrate};
 use crate::codegen::{imports_for_derives, is_rust_keyword};
 use crate::introspect::{SchemaInfo, TableInfo};
 use crate::typemap;
@@ -16,6 +16,7 @@ pub fn generate_struct(
     extra_derives: &[String],
     type_overrides: &HashMap<String, String>,
     is_view: bool,
+    time_crate: TimeCrate,
 ) -> (TokenStream, BTreeSet<String>) {
     let mut imports = BTreeSet::new();
     for imp in imports_for_derives(extra_derives) {
@@ -46,7 +47,7 @@ pub fn generate_struct(
         .columns
         .iter()
         .map(|col| {
-            let rust_type = resolve_column_type(col, db_kind, table, schema_info, type_overrides);
+            let rust_type = resolve_column_type(col, db_kind, table, schema_info, type_overrides, time_crate);
             if let Some(imp) = &rust_type.needs_import {
                 imports.insert(imp.clone());
             }
@@ -156,6 +157,7 @@ fn resolve_column_type(
     table: &TableInfo,
     schema_info: &SchemaInfo,
     type_overrides: &HashMap<String, String>,
+    time_crate: TimeCrate,
 ) -> typemap::RustType {
     // For MySQL ENUM columns, resolve to the generated enum type
     if db_kind == DatabaseKind::Mysql && col.udt_name.starts_with("enum(") {
@@ -171,7 +173,7 @@ fn resolve_column_type(
         };
     }
 
-    typemap::map_column(col, db_kind, schema_info, type_overrides)
+    typemap::map_column(col, db_kind, schema_info, type_overrides, time_crate)
 }
 
 #[cfg(test)]
@@ -203,7 +205,7 @@ mod tests {
 
     fn gen(table: &TableInfo) -> String {
         let schema = SchemaInfo::default();
-        let (tokens, _) = generate_struct(table, DatabaseKind::Postgres, &schema, &[], &HashMap::new(), false);
+        let (tokens, _) = generate_struct(table, DatabaseKind::Postgres, &schema, &[], &HashMap::new(), false, TimeCrate::Chrono);
         parse_and_format(&tokens)
     }
 
@@ -214,7 +216,7 @@ mod tests {
         derives: &[String],
         overrides: &HashMap<String, String>,
     ) -> (String, BTreeSet<String>) {
-        let (tokens, imports) = generate_struct(table, db, schema, derives, overrides, false);
+        let (tokens, imports) = generate_struct(table, db, schema, derives, overrides, false, TimeCrate::Chrono);
         (parse_and_format(&tokens), imports)
     }
 

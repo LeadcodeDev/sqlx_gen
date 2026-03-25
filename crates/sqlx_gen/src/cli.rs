@@ -87,6 +87,10 @@ pub struct EntitiesArgs {
     #[arg(short = 'v', long)]
     pub views: bool,
 
+    /// Time crate to use for date/time types: chrono (default) or time
+    #[arg(long, default_value = "chrono")]
+    pub time_crate: TimeCrate,
+
     /// Print to stdout without writing files
     #[arg(short = 'n', long)]
     pub dry_run: bool,
@@ -196,6 +200,37 @@ pub enum DatabaseKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TimeCrate {
+    #[default]
+    Chrono,
+    Time,
+}
+
+impl std::str::FromStr for TimeCrate {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "chrono" => Ok(Self::Chrono),
+            "time" => Ok(Self::Time),
+            other => Err(format!(
+                "Unknown time crate '{}'. Expected: chrono, time",
+                other
+            )),
+        }
+    }
+}
+
+impl std::fmt::Display for TimeCrate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Chrono => write!(f, "chrono"),
+            Self::Time => write!(f, "time"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PoolVisibility {
     #[default]
     Private,
@@ -291,6 +326,7 @@ mod tests {
             tables: None,
             exclude_tables: None,
             views: false,
+            time_crate: TimeCrate::Chrono,
             dry_run: false,
         }
     }

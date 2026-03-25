@@ -4,7 +4,7 @@ use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
-use crate::cli::DatabaseKind;
+use crate::cli::{DatabaseKind, TimeCrate};
 use crate::introspect::{DomainInfo, SchemaInfo};
 use crate::typemap;
 
@@ -13,6 +13,7 @@ pub fn generate_domain(
     db_kind: DatabaseKind,
     schema_info: &SchemaInfo,
     type_overrides: &HashMap<String, String>,
+    time_crate: TimeCrate,
 ) -> (TokenStream, BTreeSet<String>) {
     let mut imports = BTreeSet::new();
     let alias_name = format_ident!("{}", domain.name.to_upper_camel_case());
@@ -34,7 +35,7 @@ pub fn generate_domain(
         column_default: None,
     };
 
-    let rust_type = typemap::map_column(&fake_col, db_kind, schema_info, type_overrides);
+    let rust_type = typemap::map_column(&fake_col, db_kind, schema_info, type_overrides, time_crate);
     if let Some(imp) = &rust_type.needs_import {
         imports.insert(imp.clone());
     }
@@ -69,13 +70,13 @@ mod tests {
 
     fn gen(domain: &DomainInfo) -> (String, BTreeSet<String>) {
         let schema = SchemaInfo::default();
-        let (tokens, imports) = generate_domain(domain, DatabaseKind::Postgres, &schema, &HashMap::new());
+        let (tokens, imports) = generate_domain(domain, DatabaseKind::Postgres, &schema, &HashMap::new(), TimeCrate::Chrono);
         (parse_and_format(&tokens), imports)
     }
 
     fn gen_with_overrides(domain: &DomainInfo, overrides: &HashMap<String, String>) -> (String, BTreeSet<String>) {
         let schema = SchemaInfo::default();
-        let (tokens, imports) = generate_domain(domain, DatabaseKind::Postgres, &schema, overrides);
+        let (tokens, imports) = generate_domain(domain, DatabaseKind::Postgres, &schema, overrides, TimeCrate::Chrono);
         (parse_and_format(&tokens), imports)
     }
 

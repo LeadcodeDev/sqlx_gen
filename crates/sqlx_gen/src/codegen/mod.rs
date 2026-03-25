@@ -9,7 +9,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use proc_macro2::TokenStream;
 
-use crate::cli::DatabaseKind;
+use crate::cli::{DatabaseKind, TimeCrate};
 use crate::introspect::SchemaInfo;
 
 /// Rust reserved keywords that cannot be used as identifiers.
@@ -111,6 +111,7 @@ pub fn generate(
     extra_derives: &[String],
     type_overrides: &HashMap<String, String>,
     single_file: bool,
+    time_crate: TimeCrate,
 ) -> Vec<GeneratedFile> {
     let mut files = Vec::new();
 
@@ -120,7 +121,7 @@ pub fn generate(
     // Generate struct files for each table
     for table in &schema_info.tables {
         let (tokens, imports) =
-            struct_gen::generate_struct(table, db_kind, schema_info, extra_derives, type_overrides, false);
+            struct_gen::generate_struct(table, db_kind, schema_info, extra_derives, type_overrides, false, time_crate);
         let imports = filter_imports(&imports, single_file);
         let code = format_tokens_with_imports(&tokens, &imports);
         let module_name = build_module_name(&table.schema_name, &table.name, colliding_names.contains(table.name.as_str()));
@@ -134,7 +135,7 @@ pub fn generate(
     // Generate struct files for each view
     for view in &schema_info.views {
         let (tokens, imports) =
-            struct_gen::generate_struct(view, db_kind, schema_info, extra_derives, type_overrides, true);
+            struct_gen::generate_struct(view, db_kind, schema_info, extra_derives, type_overrides, true, time_crate);
         let imports = filter_imports(&imports, single_file);
         let code = format_tokens_with_imports(&tokens, &imports);
         let module_name = build_module_name(&view.schema_name, &view.name, colliding_names.contains(view.name.as_str()));
@@ -171,6 +172,7 @@ pub fn generate(
             schema_info,
             extra_derives,
             type_overrides,
+            time_crate,
         );
         types_blocks.push(format_tokens(&tokens));
         types_imports.extend(imports);
@@ -178,7 +180,7 @@ pub fn generate(
 
     for domain in &schema_info.domains {
         let (tokens, imports) =
-            domain_gen::generate_domain(domain, db_kind, schema_info, type_overrides);
+            domain_gen::generate_domain(domain, db_kind, schema_info, type_overrides, time_crate);
         types_blocks.push(format_tokens(&tokens));
         types_imports.extend(imports);
     }
@@ -705,7 +707,7 @@ mod tests {
     #[test]
     fn test_generate_empty_schema() {
         let schema = SchemaInfo::default();
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false, TimeCrate::Chrono);
         assert!(files.is_empty());
     }
 
@@ -715,7 +717,7 @@ mod tests {
             tables: vec![make_table("users", vec![make_col("id", "int4")])],
             ..Default::default()
         };
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false, TimeCrate::Chrono);
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].filename, "users.rs");
     }
@@ -729,7 +731,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false, TimeCrate::Chrono);
         assert_eq!(files.len(), 2);
     }
 
@@ -744,7 +746,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false, TimeCrate::Chrono);
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].filename, "types.rs");
     }
@@ -770,7 +772,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false, TimeCrate::Chrono);
         // Should produce exactly 1 types.rs
         let types_files: Vec<_> = files.iter().filter(|f| f.filename == "types.rs").collect();
         assert_eq!(types_files.len(), 1);
@@ -788,7 +790,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false, TimeCrate::Chrono);
         assert_eq!(files.len(), 2); // users.rs + types.rs
     }
 
@@ -798,7 +800,7 @@ mod tests {
             tables: vec![make_table("user__data", vec![make_col("id", "int4")])],
             ..Default::default()
         };
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false, TimeCrate::Chrono);
         assert_eq!(files[0].filename, "user_data.rs");
     }
 
@@ -808,7 +810,7 @@ mod tests {
             tables: vec![make_table("users", vec![make_col("id", "int4")])],
             ..Default::default()
         };
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false, TimeCrate::Chrono);
         assert_eq!(files[0].origin, None);
     }
 
@@ -823,7 +825,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false, TimeCrate::Chrono);
         assert_eq!(files[0].origin, None);
     }
 
@@ -839,7 +841,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), true);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), true, TimeCrate::Chrono);
         // struct file should not have super::types:: imports
         let struct_file = files.iter().find(|f| f.filename == "users.rs").unwrap();
         assert!(!struct_file.code.contains("super::types::"));
@@ -858,7 +860,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false, TimeCrate::Chrono);
         let struct_file = files.iter().find(|f| f.filename == "users.rs").unwrap();
         assert!(struct_file.code.contains("super::types::"));
     }
@@ -870,7 +872,7 @@ mod tests {
             ..Default::default()
         };
         let derives = vec!["Serialize".to_string()];
-        let files = generate(&schema, DatabaseKind::Postgres, &derives, &HashMap::new(), false);
+        let files = generate(&schema, DatabaseKind::Postgres, &derives, &HashMap::new(), false, TimeCrate::Chrono);
         assert!(files[0].code.contains("Serialize"));
     }
 
@@ -886,7 +888,7 @@ mod tests {
             ..Default::default()
         };
         let derives = vec!["Serialize".to_string()];
-        let files = generate(&schema, DatabaseKind::Postgres, &derives, &HashMap::new(), false);
+        let files = generate(&schema, DatabaseKind::Postgres, &derives, &HashMap::new(), false, TimeCrate::Chrono);
         assert!(files[0].code.contains("Serialize"));
     }
 
@@ -898,7 +900,7 @@ mod tests {
             tables: vec![make_table("users", vec![make_col("data", "jsonb")])],
             ..Default::default()
         };
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &overrides, false);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &overrides, false, TimeCrate::Chrono);
         assert!(files[0].code.contains("MyJson"));
     }
 
@@ -917,7 +919,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false, TimeCrate::Chrono);
         for f in &files {
             // Should be parseable as valid Rust
             let parse_result = syn::parse_file(&f.code);
@@ -941,7 +943,7 @@ mod tests {
             views: vec![make_view("active_users", vec![make_col("id", "int4")])],
             ..Default::default()
         };
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false, TimeCrate::Chrono);
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].filename, "active_users.rs");
     }
@@ -952,7 +954,7 @@ mod tests {
             views: vec![make_view("active_users", vec![make_col("id", "int4")])],
             ..Default::default()
         };
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false, TimeCrate::Chrono);
         assert_eq!(files[0].origin, None);
     }
 
@@ -963,7 +965,7 @@ mod tests {
             views: vec![make_view("active_users", vec![make_col("id", "int4")])],
             ..Default::default()
         };
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false, TimeCrate::Chrono);
         assert_eq!(files.len(), 2);
     }
 
@@ -976,7 +978,7 @@ mod tests {
             ])],
             ..Default::default()
         };
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false, TimeCrate::Chrono);
         let parse_result = syn::parse_file(&files[0].code);
         assert!(parse_result.is_ok(), "Failed to parse: {:?}", parse_result.err());
     }
@@ -996,7 +998,7 @@ mod tests {
             }])],
             ..Default::default()
         };
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false, TimeCrate::Chrono);
         assert!(files[0].code.contains("Option<String>"));
     }
 
@@ -1013,7 +1015,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false, TimeCrate::Chrono);
         let filenames: Vec<_> = files.iter().map(|f| f.filename.as_str()).collect();
         assert!(filenames.contains(&"users.rs"));
         assert!(filenames.contains(&"billing_users.rs"));
@@ -1032,7 +1034,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false, TimeCrate::Chrono);
         let filenames: Vec<_> = files.iter().map(|f| f.filename.as_str()).collect();
         assert!(filenames.contains(&"users.rs"));
         assert!(filenames.contains(&"invoices.rs"));
@@ -1047,7 +1049,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false, TimeCrate::Chrono);
         assert_eq!(files[0].filename, "users.rs");
         assert_eq!(files[1].filename, "posts.rs");
     }
@@ -1059,7 +1061,7 @@ mod tests {
             views: vec![make_view("active_users", vec![make_col("id", "int4")])],
             ..Default::default()
         };
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), true);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), true, TimeCrate::Chrono);
         assert_eq!(files.len(), 2);
     }
 
@@ -1206,7 +1208,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false);
+        let files = generate(&schema, DatabaseKind::Postgres, &[], &HashMap::new(), false, TimeCrate::Chrono);
         let types_file = files.iter().find(|f| f.filename == "types.rs").unwrap();
         assert!(types_file.code.contains("impl Default for TaskStatus"));
         assert!(types_file.code.contains("Self::Idle"));

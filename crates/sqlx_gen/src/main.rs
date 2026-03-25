@@ -90,6 +90,7 @@ async fn run_entities(args: EntitiesArgs) -> Result<()> {
         &args.derives,
         &type_overrides,
         args.single_file,
+        args.time_crate,
     );
 
     writer::write_files(&files, &args.output_dir, args.single_file, args.dry_run)?;

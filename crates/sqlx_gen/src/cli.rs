@@ -263,10 +263,11 @@ pub struct Methods {
     pub get: bool,
     pub insert: bool,
     pub update: bool,
+    pub overwrite: bool,
     pub delete: bool,
 }
 
-const ALL_METHODS: &[&str] = &["get_all", "paginate", "get", "insert", "update", "delete"];
+const ALL_METHODS: &[&str] = &["get_all", "paginate", "get", "insert", "update", "overwrite", "delete"];
 
 impl Methods {
     /// Parse a list of method names. `"*"` enables all methods.
@@ -280,6 +281,7 @@ impl Methods {
                 "get" => m.get = true,
                 "insert" => m.insert = true,
                 "update" => m.update = true,
+                "overwrite" => m.overwrite = true,
                 "delete" => m.delete = true,
                 other => {
                     return Err(format!(
@@ -300,6 +302,7 @@ impl Methods {
             get: true,
             insert: true,
             update: true,
+            overwrite: true,
             delete: true,
         }
     }
@@ -490,6 +493,7 @@ mod tests {
         assert!(!m.get);
         assert!(!m.insert);
         assert!(!m.update);
+        assert!(!m.overwrite);
         assert!(!m.delete);
     }
 
@@ -501,6 +505,7 @@ mod tests {
         assert!(m.get);
         assert!(m.insert);
         assert!(m.update);
+        assert!(m.overwrite);
         assert!(m.delete);
     }
 
@@ -536,7 +541,22 @@ mod tests {
         assert!(m.get);
         assert!(m.insert);
         assert!(m.update);
+        assert!(m.overwrite);
         assert!(m.delete);
+    }
+
+    #[test]
+    fn test_parse_overwrite_method() {
+        let m = Methods::from_list(&["overwrite".to_string()]).unwrap();
+        assert!(m.overwrite);
+        assert!(!m.update);
+        assert!(!m.get);
+    }
+
+    #[test]
+    fn test_wildcard_includes_overwrite() {
+        let m = Methods::from_list(&["*".to_string()]).unwrap();
+        assert!(m.overwrite);
     }
 
     // ========== module_path_from_file ==========

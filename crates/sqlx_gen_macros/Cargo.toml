@@ -1,6 +1,6 @@
 [package]
 name = "sqlx-gen-macros"
-version = "0.4.9"
+version = "0.5.0"
 edition = "2021"
 description = "No-op attribute macros for sqlx-gen generated code"
 license = "MIT"

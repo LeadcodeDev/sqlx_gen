@@ -128,7 +128,7 @@ fn run_crud(args: CrudArgs) -> Result<()> {
 
     if args.methods.is_empty() {
         return Err(sqlx_gen::error::Error::Config(
-            "--methods is required. Use -m '*' for all, or specify methods: get_all,paginate,get,insert,update,delete".to_string()
+            "--methods is required. Use -m '*' for all, or specify methods: get_all,paginate,get,insert,update,overwrite,delete".to_string()
         ));
     }
 

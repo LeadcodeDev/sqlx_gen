@@ -190,7 +190,7 @@ Generated files are automatically formatted with `rustfmt`. The Rust edition is 
 | `--db-kind` | `-d` | Database kind: `postgres`, `mysql`, `sqlite` | required |
 | `--entities-module` | `-e` | Rust module path (e.g. `crate::models::users`). Auto-detected from file path if omitted. | auto |
 | `--output-dir` | `-o` | Output directory | `src/crud` |
-| `--methods` | `-m` | Methods to generate (comma-separated): `*`, `get_all`, `paginate`, `get`, `insert`, `update`, `delete` | required |
+| `--methods` | `-m` | Methods to generate (comma-separated): `*`, `get_all`, `paginate`, `get`, `insert`, `update`, `overwrite`, `delete` | required |
 | `--query-macro` | `-q` | Use `sqlx::query_as!()` macros (compile-time checked) | `false` |
 | `--pool-visibility` | `-p` | Visibility of the `pool` field: `private`, `pub`, `pub(crate)` | `private` |
 | `--dry-run` | `-n` | Print to stdout, don't write files | `false` |

@@ -30,7 +30,7 @@ cli = [
 ]
 
 [dependencies]
-sqlx-gen-macros = { path = "../sqlx_gen_macros", version = "0.4.0" }
+sqlx-gen-macros = { path = "../sqlx_gen_macros", version = "0.5.0" }
 sqlx = { version = "0.8", features = [
     "runtime-tokio",
     "tls-rustls-ring",

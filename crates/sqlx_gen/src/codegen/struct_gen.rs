@@ -80,19 +80,24 @@ pub fn generate_struct(
                 quote! {}
             };
 
-            // Build #[sqlx_gen(...)] attribute with optional primary_key, sql_type, is_array
+            // Build #[sqlx_gen(...)] attribute with optional primary_key, sql_type, is_array, column_default
             let (sql_type, is_sql_array) = detect_custom_sql_type(&col.udt_name, schema_info);
             let has_pk = col.is_primary_key;
             let has_sql_type = sql_type.is_some();
+            let has_default = col.column_default.is_some();
 
-            let sqlx_gen_attr = if has_pk || has_sql_type {
+            let sqlx_gen_attr = if has_pk || has_sql_type || has_default {
                 let pk_part = if has_pk { quote! { primary_key, } } else { quote! {} };
                 let sql_type_part = match &sql_type {
                     Some(t) => quote! { sql_type = #t, },
                     None => quote! {},
                 };
                 let array_part = if is_sql_array { quote! { is_array, } } else { quote! {} };
-                quote! { #[sqlx_gen(#pk_part #sql_type_part #array_part)] }
+                let default_part = match &col.column_default {
+                    Some(d) => quote! { column_default = #d, },
+                    None => quote! {},
+                };
+                quote! { #[sqlx_gen(#pk_part #sql_type_part #array_part #default_part)] }
             } else {
                 quote! {}
             };

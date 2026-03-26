@@ -241,20 +241,50 @@ pub fn generate_crud_from_parsed(
             non_pk_fields.clone()
         };
 
+        // Fields with column_default and not already nullable → Option<T>
         let insert_fields: Vec<TokenStream> = insert_source_fields
             .iter()
             .map(|f| {
                 let name = format_ident!("{}", f.rust_name);
-                let ty: TokenStream = f.rust_type.parse().unwrap();
-                quote! { pub #name: #ty, }
+                if f.column_default.is_some() && !f.is_nullable {
+                    let ty: TokenStream = format!("Option<{}>", f.rust_type).parse().unwrap();
+                    quote! { pub #name: #ty, }
+                } else {
+                    let ty: TokenStream = f.rust_type.parse().unwrap();
+                    quote! { pub #name: #ty, }
+                }
             })
             .collect();
 
         let col_names: Vec<&str> = insert_source_fields.iter().map(|f| f.column_name.as_str()).collect();
         let col_list = col_names.join(", ");
-        // Use casted placeholders for macro mode, plain for runtime
-        let placeholders = build_placeholders(insert_source_fields.len(), db_kind, 1);
-        let placeholders_cast = build_placeholders_with_cast(&insert_source_fields, db_kind, 1, true);
+
+        // Build placeholders with COALESCE for fields that have a column_default
+        let placeholders: String = insert_source_fields
+            .iter()
+            .enumerate()
+            .map(|(i, f)| {
+                let p = placeholder(db_kind, i + 1);
+                match &f.column_default {
+                    Some(default_expr) => format!("COALESCE({}, {})", p, default_expr),
+                    None => p,
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let placeholders_cast: String = insert_source_fields
+            .iter()
+            .enumerate()
+            .map(|(i, f)| {
+                let p = placeholder_with_cast(db_kind, i + 1, f);
+                match &f.column_default {
+                    Some(default_expr) => format!("COALESCE({}, {})", p, default_expr),
+                    None => p,
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
 
         let build_insert_sql = |ph: &str| match db_kind {
             DatabaseKind::Postgres | DatabaseKind::Sqlite => {
@@ -307,8 +337,18 @@ pub fn generate_crud_from_parsed(
     if !is_view && methods.overwrite && !pk_fields.is_empty() && !non_pk_fields.is_empty() {
         let overwrite_params_ident = format_ident!("Overwrite{}Params", entity.struct_name);
 
-        let overwrite_fields: Vec<TokenStream> = entity
-            .fields
+        // PK as function parameters (like get/delete)
+        let pk_fn_params: Vec<TokenStream> = pk_fields
+            .iter()
+            .map(|f| {
+                let name = format_ident!("{}", f.rust_name);
+                let ty: TokenStream = f.inner_type.parse().unwrap();
+                quote! { #name: #ty }
+            })
+            .collect();
+
+        // Non-PK fields keep original types (required)
+        let overwrite_fields: Vec<TokenStream> = non_pk_fields
             .iter()
             .map(|f| {
                 let name = format_ident!("{}", f.rust_name);
@@ -327,7 +367,6 @@ pub fn generate_crud_from_parsed(
             .collect();
         let set_clause = set_cols.join(", ");
 
-        // SET clause with casts for macro mode
         let set_cols_cast: Vec<String> = non_pk_fields
             .iter()
             .enumerate()
@@ -344,22 +383,16 @@ pub fn generate_crud_from_parsed(
 
         let build_overwrite_sql = |sc: &str, wc: &str| match db_kind {
             DatabaseKind::Postgres | DatabaseKind::Sqlite => {
-                format!(
-                    "UPDATE {} SET {} WHERE {} RETURNING *",
-                    table_name, sc, wc
-                )
+                format!("UPDATE {} SET {} WHERE {} RETURNING *", table_name, sc, wc)
             }
             DatabaseKind::Mysql => {
-                format!(
-                    "UPDATE {} SET {} WHERE {}",
-                    table_name, sc, wc
-                )
+                format!("UPDATE {} SET {} WHERE {}", table_name, sc, wc)
             }
         };
         let sql = build_overwrite_sql(&set_clause, &where_clause);
         let sql_macro = build_overwrite_sql(&set_clause_cast, &where_clause_cast);
 
-        // Bind non-PK first, then PK
+        // Bind non-PK first (from params), then PK (from function args)
         let mut all_binds: Vec<TokenStream> = non_pk_fields
             .iter()
             .map(|f| {
@@ -369,21 +402,24 @@ pub fn generate_crud_from_parsed(
             .collect();
         for f in &pk_fields {
             let name = format_ident!("{}", f.rust_name);
-            all_binds.push(quote! { .bind(&params.#name) });
+            all_binds.push(quote! { .bind(#name) });
         }
 
-        // Macro args: non-PK fields first, then PK fields
+        // Macro args: non-PK from params, then PK from function args
         let overwrite_macro_args: Vec<TokenStream> = non_pk_fields
             .iter()
-            .chain(pk_fields.iter())
             .map(|f| macro_arg_for_field(f))
+            .chain(pk_fields.iter().map(|f| {
+                let name = format_ident!("{}", f.rust_name);
+                quote! { #name }
+            }))
             .collect();
 
         let overwrite_method = if use_macro {
             match db_kind {
                 DatabaseKind::Postgres | DatabaseKind::Sqlite => {
                     quote! {
-                        pub async fn overwrite(&self, params: &#overwrite_params_ident) -> Result<#entity_ident, sqlx::Error> {
+                        pub async fn overwrite(&self, #(#pk_fn_params),*, params: &#overwrite_params_ident) -> Result<#entity_ident, sqlx::Error> {
                             sqlx::query_as!(#entity_ident, #sql_macro, #(#overwrite_macro_args),*)
                                 .fetch_one(&self.pool)
                                 .await
@@ -397,11 +433,11 @@ pub fn generate_crud_from_parsed(
                         .iter()
                         .map(|f| {
                             let name = format_ident!("{}", f.rust_name);
-                            quote! { params.#name }
+                            quote! { #name }
                         })
                         .collect();
                     quote! {
-                        pub async fn overwrite(&self, params: &#overwrite_params_ident) -> Result<#entity_ident, sqlx::Error> {
+                        pub async fn overwrite(&self, #(#pk_fn_params),*, params: &#overwrite_params_ident) -> Result<#entity_ident, sqlx::Error> {
                             sqlx::query!(#sql_macro, #(#overwrite_macro_args),*)
                                 .execute(&self.pool)
                                 .await?;
@@ -416,7 +452,7 @@ pub fn generate_crud_from_parsed(
             match db_kind {
                 DatabaseKind::Postgres | DatabaseKind::Sqlite => {
                     quote! {
-                        pub async fn overwrite(&self, params: &#overwrite_params_ident) -> Result<#entity_ident, sqlx::Error> {
+                        pub async fn overwrite(&self, #(#pk_fn_params),*, params: &#overwrite_params_ident) -> Result<#entity_ident, sqlx::Error> {
                             sqlx::query_as::<_, #entity_ident>(#sql)
                                 #(#all_binds)*
                                 .fetch_one(&self.pool)
@@ -431,11 +467,11 @@ pub fn generate_crud_from_parsed(
                         .iter()
                         .map(|f| {
                             let name = format_ident!("{}", f.rust_name);
-                            quote! { .bind(&params.#name) }
+                            quote! { .bind(#name) }
                         })
                         .collect();
                     quote! {
-                        pub async fn overwrite(&self, params: &#overwrite_params_ident) -> Result<#entity_ident, sqlx::Error> {
+                        pub async fn overwrite(&self, #(#pk_fn_params),*, params: &#overwrite_params_ident) -> Result<#entity_ident, sqlx::Error> {
                             sqlx::query(#sql)
                                 #(#all_binds)*
                                 .execute(&self.pool)
@@ -463,16 +499,22 @@ pub fn generate_crud_from_parsed(
     if !is_view && methods.update && !pk_fields.is_empty() && !non_pk_fields.is_empty() {
         let update_params_ident = format_ident!("Update{}Params", entity.struct_name);
 
-        // PK fields keep original type; non-PK fields become Option<T> (no double Option)
-        let update_fields: Vec<TokenStream> = entity
-            .fields
+        // PK as function parameters (like get/delete)
+        let pk_fn_params: Vec<TokenStream> = pk_fields
             .iter()
             .map(|f| {
                 let name = format_ident!("{}", f.rust_name);
-                if f.is_primary_key {
-                    let ty: TokenStream = f.rust_type.parse().unwrap();
-                    quote! { pub #name: #ty, }
-                } else if f.is_nullable {
+                let ty: TokenStream = f.inner_type.parse().unwrap();
+                quote! { #name: #ty }
+            })
+            .collect();
+
+        // Non-PK fields become Option<T> (no double Option for already nullable)
+        let update_fields: Vec<TokenStream> = non_pk_fields
+            .iter()
+            .map(|f| {
+                let name = format_ident!("{}", f.rust_name);
+                if f.is_nullable {
                     // Already Option<T> — keep as-is to avoid Option<Option<T>>
                     let ty: TokenStream = f.rust_type.parse().unwrap();
                     quote! { pub #name: #ty, }
@@ -526,7 +568,7 @@ pub fn generate_crud_from_parsed(
         let sql = build_update_sql(&set_clause, &where_clause);
         let sql_macro = build_update_sql(&set_clause_cast, &where_clause_cast);
 
-        // Bind non-PK first, then PK
+        // Bind non-PK first (from params), then PK (from function args)
         let mut all_binds: Vec<TokenStream> = non_pk_fields
             .iter()
             .map(|f| {
@@ -536,22 +578,24 @@ pub fn generate_crud_from_parsed(
             .collect();
         for f in &pk_fields {
             let name = format_ident!("{}", f.rust_name);
-            all_binds.push(quote! { .bind(&params.#name) });
+            all_binds.push(quote! { .bind(#name) });
         }
 
-        // Macro args: non-PK fields first, then PK fields
-        // All non-PK fields are Option<T> in the params struct, sqlx handles None → NULL
+        // Macro args: non-PK from params, then PK from function args
         let update_macro_args: Vec<TokenStream> = non_pk_fields
             .iter()
-            .chain(pk_fields.iter())
             .map(|f| macro_arg_for_field(f))
+            .chain(pk_fields.iter().map(|f| {
+                let name = format_ident!("{}", f.rust_name);
+                quote! { #name }
+            }))
             .collect();
 
         let update_method = if use_macro {
             match db_kind {
                 DatabaseKind::Postgres | DatabaseKind::Sqlite => {
                     quote! {
-                        pub async fn update(&self, params: &#update_params_ident) -> Result<#entity_ident, sqlx::Error> {
+                        pub async fn update(&self, #(#pk_fn_params),*, params: &#update_params_ident) -> Result<#entity_ident, sqlx::Error> {
                             sqlx::query_as!(#entity_ident, #sql_macro, #(#update_macro_args),*)
                                 .fetch_one(&self.pool)
                                 .await
@@ -565,11 +609,11 @@ pub fn generate_crud_from_parsed(
                         .iter()
                         .map(|f| {
                             let name = format_ident!("{}", f.rust_name);
-                            quote! { params.#name }
+                            quote! { #name }
                         })
                         .collect();
                     quote! {
-                        pub async fn update(&self, params: &#update_params_ident) -> Result<#entity_ident, sqlx::Error> {
+                        pub async fn update(&self, #(#pk_fn_params),*, params: &#update_params_ident) -> Result<#entity_ident, sqlx::Error> {
                             sqlx::query!(#sql_macro, #(#update_macro_args),*)
                                 .execute(&self.pool)
                                 .await?;
@@ -584,7 +628,7 @@ pub fn generate_crud_from_parsed(
             match db_kind {
                 DatabaseKind::Postgres | DatabaseKind::Sqlite => {
                     quote! {
-                        pub async fn update(&self, params: &#update_params_ident) -> Result<#entity_ident, sqlx::Error> {
+                        pub async fn update(&self, #(#pk_fn_params),*, params: &#update_params_ident) -> Result<#entity_ident, sqlx::Error> {
                             sqlx::query_as::<_, #entity_ident>(#sql)
                                 #(#all_binds)*
                                 .fetch_one(&self.pool)
@@ -599,11 +643,11 @@ pub fn generate_crud_from_parsed(
                         .iter()
                         .map(|f| {
                             let name = format_ident!("{}", f.rust_name);
-                            quote! { .bind(&params.#name) }
+                            quote! { .bind(#name) }
                         })
                         .collect();
                     quote! {
-                        pub async fn update(&self, params: &#update_params_ident) -> Result<#entity_ident, sqlx::Error> {
+                        pub async fn update(&self, #(#pk_fn_params),*, params: &#update_params_ident) -> Result<#entity_ident, sqlx::Error> {
                             sqlx::query(#sql)
                                 #(#all_binds)*
                                 .execute(&self.pool)
@@ -907,6 +951,32 @@ mod tests {
             is_primary_key: is_pk,
             sql_type: None,
             is_sql_array: false,
+            column_default: None,
+        }
+    }
+
+    fn make_field_with_default(rust_name: &str, column_name: &str, rust_type: &str, nullable: bool, is_pk: bool, default: &str) -> ParsedField {
+        let mut f = make_field(rust_name, column_name, rust_type, nullable, is_pk);
+        f.column_default = Some(default.to_string());
+        f
+    }
+
+    fn entity_with_defaults() -> ParsedEntity {
+        ParsedEntity {
+            struct_name: "Tasks".to_string(),
+            table_name: "tasks".to_string(),
+            schema_name: None,
+            is_view: false,
+            fields: vec![
+                make_field("id", "id", "i32", false, true),
+                make_field("title", "title", "String", false, false),
+                make_field_with_default("status", "status", "String", false, false, "'idle'::task_status"),
+                make_field_with_default("priority", "priority", "i32", false, false, "0"),
+                make_field_with_default("created_at", "created_at", "DateTime<Utc>", false, false, "now()"),
+                make_field("description", "description", "Option<String>", true, false),
+                make_field_with_default("deleted_at", "deleted_at", "Option<DateTime<Utc>>", true, false, "NULL"),
+            ],
+            imports: vec![],
         }
     }
 
@@ -1147,40 +1217,55 @@ mod tests {
         assert!(code.contains("LAST_INSERT_ID"));
     }
 
-    // --- overwrite (full replacement, formerly "update") ---
+    // --- insert with column_default ---
 
     #[test]
-    fn test_overwrite_method() {
-        let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("pub async fn overwrite"));
+    fn test_insert_default_col_is_optional() {
+        let code = gen(&entity_with_defaults(), DatabaseKind::Postgres);
+        // Fields with column_default and not nullable → Option<T>
+        let struct_start = code.find("pub struct InsertTasksParams").expect("InsertTasksParams not found");
+        let struct_end = code[struct_start..].find('}').unwrap() + struct_start;
+        let struct_body = &code[struct_start..struct_end];
+        assert!(struct_body.contains("Option") && struct_body.contains("status"), "Expected status as Option in InsertTasksParams: {}", struct_body);
     }
 
     #[test]
-    fn test_overwrite_params_struct() {
-        let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("pub struct OverwriteUsersParams"));
+    fn test_insert_non_default_col_required() {
+        let code = gen(&entity_with_defaults(), DatabaseKind::Postgres);
+        // 'title' has no default → required type (String)
+        let struct_start = code.find("pub struct InsertTasksParams").expect("InsertTasksParams not found");
+        let struct_end = code[struct_start..].find('}').unwrap() + struct_start;
+        let struct_body = &code[struct_start..struct_end];
+        assert!(struct_body.contains("title") && struct_body.contains("String"), "Expected title as String: {}", struct_body);
     }
 
     #[test]
-    fn test_overwrite_params_all_cols() {
-        let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("OverwriteUsersParams"));
-        assert!(code.contains("pub id: i32"));
-        assert!(code.contains("pub name: String"));
+    fn test_insert_default_col_coalesce_sql() {
+        let code = gen(&entity_with_defaults(), DatabaseKind::Postgres);
+        assert!(code.contains("COALESCE($2, 'idle'::task_status)"), "Expected COALESCE for status:\n{}", code);
+        assert!(code.contains("COALESCE($3, 0)"), "Expected COALESCE for priority:\n{}", code);
+        assert!(code.contains("COALESCE($4, now())"), "Expected COALESCE for created_at:\n{}", code);
     }
 
     #[test]
-    fn test_overwrite_set_clause_pg() {
-        let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        // Overwrite uses direct assignment, no COALESCE
-        assert!(code.contains("SET name = $1, email = $2 WHERE id = $3"));
+    fn test_insert_no_coalesce_for_non_default() {
+        let code = gen(&entity_with_defaults(), DatabaseKind::Postgres);
+        // title has no default, so its placeholder should be plain $1 not COALESCE
+        assert!(code.contains("VALUES ($1, COALESCE"), "Expected $1 without COALESCE for title:\n{}", code);
     }
 
     #[test]
-    fn test_overwrite_returning_pg() {
-        let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("UPDATE users SET"));
-        assert!(code.contains("RETURNING *"));
+    fn test_insert_nullable_with_default_no_double_option() {
+        let code = gen(&entity_with_defaults(), DatabaseKind::Postgres);
+        assert!(!code.contains("Option < Option") && !code.contains("Option<Option"), "Should not have Option<Option>:\n{}", code);
+    }
+
+    #[test]
+    fn test_insert_derive_default() {
+        let code = gen(&entity_with_defaults(), DatabaseKind::Postgres);
+        let struct_start = code.find("pub struct InsertTasksParams").expect("InsertTasksParams not found");
+        let before_struct = &code[..struct_start];
+        assert!(before_struct.ends_with("Default)]\n") || before_struct.contains("Default)]"), "Expected #[derive(Default)] on InsertTasksParams");
     }
 
     // --- update (patch with COALESCE) ---
@@ -1198,10 +1283,24 @@ mod tests {
     }
 
     #[test]
-    fn test_update_params_pk_keeps_original_type() {
+    fn test_update_pk_in_fn_signature() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        // PK field `id` stays i32 (not Option<i32>) in UpdateUsersParams
-        assert!(code.contains("pub id: i32") || code.contains("pub id : i32"));
+        // PK 'id: i32' should appear between "fn update" and "UpdateUsersParams"
+        let update_pos = code.find("fn update").expect("fn update not found");
+        let params_pos = code[update_pos..].find("UpdateUsersParams").expect("UpdateUsersParams not found in update fn");
+        let signature = &code[update_pos..update_pos + params_pos];
+        assert!(signature.contains("id"), "Expected 'id' PK in update fn signature: {}", signature);
+    }
+
+    #[test]
+    fn test_update_pk_not_in_struct() {
+        let code = gen(&standard_entity(), DatabaseKind::Postgres);
+        // UpdateUsersParams should NOT contain id field
+        // Extract the struct definition and check it doesn't have id
+        let struct_start = code.find("pub struct UpdateUsersParams").expect("UpdateUsersParams not found");
+        let struct_end = code[struct_start..].find('}').unwrap() + struct_start;
+        let struct_body = &code[struct_start..struct_end];
+        assert!(!struct_body.contains("pub id"), "PK 'id' should not be in UpdateUsersParams:\n{}", struct_body);
     }
 
     #[test]
@@ -1251,13 +1350,84 @@ mod tests {
         assert!(code.contains("COALESCE(?, name)"), "Expected COALESCE for SQLite:\n{}", code);
     }
 
+    // --- overwrite (full replacement, PK as fn param) ---
+
+    #[test]
+    fn test_overwrite_method() {
+        let code = gen(&standard_entity(), DatabaseKind::Postgres);
+        assert!(code.contains("pub async fn overwrite"));
+    }
+
+    #[test]
+    fn test_overwrite_params_struct() {
+        let code = gen(&standard_entity(), DatabaseKind::Postgres);
+        assert!(code.contains("pub struct OverwriteUsersParams"));
+    }
+
+    #[test]
+    fn test_overwrite_pk_in_fn_signature() {
+        let code = gen(&standard_entity(), DatabaseKind::Postgres);
+        let pos = code.find("fn overwrite").expect("fn overwrite not found");
+        let params_pos = code[pos..].find("OverwriteUsersParams").expect("OverwriteUsersParams not found");
+        let signature = &code[pos..pos + params_pos];
+        assert!(signature.contains("id"), "Expected PK in overwrite fn signature: {}", signature);
+    }
+
+    #[test]
+    fn test_overwrite_pk_not_in_struct() {
+        let code = gen(&standard_entity(), DatabaseKind::Postgres);
+        let struct_start = code.find("pub struct OverwriteUsersParams").expect("OverwriteUsersParams not found");
+        let struct_end = code[struct_start..].find('}').unwrap() + struct_start;
+        let struct_body = &code[struct_start..struct_end];
+        assert!(!struct_body.contains("pub id"), "PK should not be in OverwriteUsersParams: {}", struct_body);
+    }
+
+    #[test]
+    fn test_overwrite_no_coalesce() {
+        let code = gen(&standard_entity(), DatabaseKind::Postgres);
+        // Find the overwrite SQL — should have direct SET, no COALESCE
+        let pos = code.find("fn overwrite").expect("fn overwrite not found");
+        let method_body = &code[pos..pos + 500.min(code.len() - pos)];
+        assert!(!method_body.contains("COALESCE"), "Overwrite should not use COALESCE: {}", method_body);
+    }
+
+    #[test]
+    fn test_overwrite_set_clause_pg() {
+        let code = gen(&standard_entity(), DatabaseKind::Postgres);
+        assert!(code.contains("SET name = $1, email = $2 WHERE id = $3"));
+    }
+
+    #[test]
+    fn test_overwrite_returning_pg() {
+        let code = gen(&standard_entity(), DatabaseKind::Postgres);
+        let pos = code.find("fn overwrite").expect("fn overwrite not found");
+        let method_body = &code[pos..pos + 500.min(code.len() - pos)];
+        assert!(method_body.contains("RETURNING *"), "Expected RETURNING * in overwrite");
+    }
+
+    #[test]
+    fn test_view_no_overwrite() {
+        let mut entity = standard_entity();
+        entity.is_view = true;
+        let code = gen(&entity, DatabaseKind::Postgres);
+        assert!(!code.contains("pub async fn overwrite"));
+    }
+
+    #[test]
+    fn test_without_overwrite() {
+        let m = Methods { overwrite: false, ..Methods::all() };
+        let code = gen_with_methods(&standard_entity(), DatabaseKind::Postgres, &m);
+        assert!(!code.contains("pub async fn overwrite"));
+        assert!(!code.contains("OverwriteUsersParams"));
+    }
+
     #[test]
     fn test_update_and_overwrite_coexist() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("pub async fn update"), "Expected update method:\n{}", code);
-        assert!(code.contains("pub async fn overwrite"), "Expected overwrite method:\n{}", code);
-        assert!(code.contains("UpdateUsersParams"), "Expected UpdateUsersParams struct:\n{}", code);
-        assert!(code.contains("OverwriteUsersParams"), "Expected OverwriteUsersParams struct:\n{}", code);
+        assert!(code.contains("pub async fn update"), "Expected update method");
+        assert!(code.contains("pub async fn overwrite"), "Expected overwrite method");
+        assert!(code.contains("UpdateUsersParams"), "Expected UpdateUsersParams");
+        assert!(code.contains("OverwriteUsersParams"), "Expected OverwriteUsersParams");
     }
 
     // --- delete ---
@@ -1296,14 +1466,6 @@ mod tests {
         entity.is_view = true;
         let code = gen(&entity, DatabaseKind::Postgres);
         assert!(!code.contains("pub async fn update"));
-    }
-
-    #[test]
-    fn test_view_no_overwrite() {
-        let mut entity = standard_entity();
-        entity.is_view = true;
-        let code = gen(&entity, DatabaseKind::Postgres);
-        assert!(!code.contains("pub async fn overwrite"));
     }
 
     #[test]
@@ -1387,14 +1549,6 @@ mod tests {
         let code = gen_with_methods(&standard_entity(), DatabaseKind::Postgres, &m);
         assert!(!code.contains("pub async fn update"));
         assert!(!code.contains("UpdateUsersParams"));
-    }
-
-    #[test]
-    fn test_without_overwrite() {
-        let m = Methods { overwrite: false, ..Methods::all() };
-        let code = gen_with_methods(&standard_entity(), DatabaseKind::Postgres, &m);
-        assert!(!code.contains("pub async fn overwrite"));
-        assert!(!code.contains("OverwriteUsersParams"));
     }
 
     #[test]
@@ -1572,15 +1726,6 @@ mod tests {
     }
 
     #[test]
-    fn test_macro_overwrite() {
-        let code = gen_macro(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("query_as!(Users"));
-        // Should contain params.name, params.email, params.id as args
-        assert!(code.contains("pub async fn overwrite"));
-        assert!(code.contains("OverwriteUsersParams"));
-    }
-
-    #[test]
     fn test_macro_update() {
         let code = gen_macro(&standard_entity(), DatabaseKind::Postgres);
         assert!(code.contains("query_as!(Users"));
@@ -1628,6 +1773,7 @@ mod tests {
                     is_primary_key: true,
                     sql_type: None,
                     is_sql_array: false,
+                    column_default: None,
                 },
                 ParsedField {
                     rust_name: "agent_id".to_string(),
@@ -1638,6 +1784,7 @@ mod tests {
                     is_primary_key: false,
                     sql_type: None,
                     is_sql_array: false,
+                    column_default: None,
                 },
                 ParsedField {
                     rust_name: "usages".to_string(),
@@ -1648,6 +1795,7 @@ mod tests {
                     is_primary_key: false,
                     sql_type: Some("agent.connector_usages".to_string()),
                     is_sql_array: true,
+                    column_default: None,
                 },
             ],
             imports: vec!["use uuid::Uuid;".to_string()],
@@ -1681,12 +1829,6 @@ mod tests {
         assert!(code.contains("query_as::<_ , AgentConnector>") || code.contains("query_as::<_, AgentConnector>"));
     }
 
-    #[test]
-    fn test_sql_array_macro_overwrite_uses_runtime() {
-        let code = gen_macro_array(&entity_with_sql_array(), DatabaseKind::Postgres);
-        // overwrite RETURNING should use runtime query_as
-        assert!(code.contains("query_as::<"));
-    }
 
     #[test]
     fn test_sql_array_macro_delete_still_uses_macro() {
@@ -1720,6 +1862,7 @@ mod tests {
                     is_primary_key: true,
                     sql_type: None,
                     is_sql_array: false,
+                    column_default: None,
                 },
                 ParsedField {
                     rust_name: "status".to_string(),
@@ -1730,6 +1873,7 @@ mod tests {
                     is_primary_key: false,
                     sql_type: Some("task_status".to_string()),
                     is_sql_array: false,
+                    column_default: None,
                 },
             ],
             imports: vec![],
@@ -1773,6 +1917,7 @@ mod tests {
                     is_primary_key: true,
                     sql_type: None,
                     is_sql_array: false,
+                    column_default: None,
                 },
                 ParsedField {
                     rust_name: "content".to_string(),
@@ -1783,6 +1928,7 @@ mod tests {
                     is_primary_key: false,
                     sql_type: None,
                     is_sql_array: false,
+                    column_default: None,
                 },
                 ParsedField {
                     rust_name: "tags".to_string(),
@@ -1793,6 +1939,7 @@ mod tests {
                     is_primary_key: false,
                     sql_type: None,
                     is_sql_array: false,
+                    column_default: None,
                 },
             ],
             imports: vec!["use uuid::Uuid;".to_string()],
@@ -1808,13 +1955,13 @@ mod tests {
     }
 
     #[test]
-    fn test_vec_string_macro_overwrite_uses_as_slice() {
+    fn test_vec_string_macro_update_uses_as_slice() {
         let skip = Methods::all();
         let (tokens, _) = generate_crud_from_parsed(&entity_with_vec_string(), DatabaseKind::Postgres, "crate::models::prompt_history", &skip, true, PoolVisibility::Private);
         let code = parse_and_format(&tokens);
-        // Should have as_slice() for insert, overwrite, and update
+        // Should have as_slice() for insert and update
         let count = code.matches("as_slice()").count();
-        assert!(count >= 3, "expected at least 3 as_slice() calls (insert + overwrite + update), found {}", count);
+        assert!(count >= 2, "expected at least 2 as_slice() calls (insert + update), found {}", count);
     }
 
     #[test]
@@ -1881,12 +2028,6 @@ mod tests {
         assert!(!code.contains("pub async fn update"), "Expected no update method:\n{}", code);
     }
 
-    #[test]
-    fn test_composite_pk_only_no_overwrite() {
-        let code = gen(&junction_entity(), DatabaseKind::Postgres);
-        assert!(!code.contains("OverwriteAnalysisRecordParams"), "Expected no OverwriteAnalysisRecordParams struct:\n{}", code);
-        assert!(!code.contains("pub async fn overwrite"), "Expected no overwrite method:\n{}", code);
-    }
 
     #[test]
     fn test_composite_pk_only_delete_generated() {

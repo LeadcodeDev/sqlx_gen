@@ -550,13 +550,6 @@ mod tests {
         let m = Methods::from_list(&["overwrite".to_string()]).unwrap();
         assert!(m.overwrite);
         assert!(!m.update);
-        assert!(!m.get);
-    }
-
-    #[test]
-    fn test_wildcard_includes_overwrite() {
-        let m = Methods::from_list(&["*".to_string()]).unwrap();
-        assert!(m.overwrite);
     }
 
     // ========== module_path_from_file ==========

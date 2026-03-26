@@ -21,6 +21,8 @@ pub struct ParsedField {
     pub sql_type: Option<String>,
     /// Whether the SQL type is an array (needs `[]` suffix in cast)
     pub is_sql_array: bool,
+    /// Raw SQL default expression from the DB (e.g. "now()", "'idle'::task_status")
+    pub column_default: Option<String>,
 }
 
 /// Represents an entity parsed from a generated Rust file.
@@ -189,7 +191,7 @@ fn extract_field(field: &syn::Field) -> Result<ParsedField, String> {
         .to_string();
 
     let column_name = get_sqlx_rename(&field.attrs).unwrap_or_else(|| rust_name.clone());
-    let (is_primary_key, sql_type, is_sql_array) = parse_sqlx_gen_field_attrs(&field.attrs);
+    let (is_primary_key, sql_type, is_sql_array, column_default) = parse_sqlx_gen_field_attrs(&field.attrs);
 
     let rust_type = field.ty.to_token_stream().to_string();
     let (is_nullable, inner_type) = extract_option_type(&field.ty);
@@ -208,15 +210,17 @@ fn extract_field(field: &syn::Field) -> Result<ParsedField, String> {
         is_primary_key,
         sql_type,
         is_sql_array,
+        column_default,
     })
 }
 
 /// Parse `#[sqlx_gen(...)]` attributes on a field.
-/// Returns (is_primary_key, sql_type, is_sql_array).
-fn parse_sqlx_gen_field_attrs(attrs: &[syn::Attribute]) -> (bool, Option<String>, bool) {
+/// Returns (is_primary_key, sql_type, is_sql_array, column_default).
+fn parse_sqlx_gen_field_attrs(attrs: &[syn::Attribute]) -> (bool, Option<String>, bool, Option<String>) {
     let mut is_pk = false;
     let mut sql_type = None;
     let mut is_array = false;
+    let mut column_default = None;
 
     for attr in attrs {
         if attr.path().is_ident("sqlx_gen") {
@@ -230,10 +234,13 @@ fn parse_sqlx_gen_field_attrs(attrs: &[syn::Attribute]) -> (bool, Option<String>
             if tokens.contains("is_array") {
                 is_array = true;
             }
+            if let Some(d) = extract_attr_value(&tokens, "column_default") {
+                column_default = Some(d);
+            }
         }
     }
 
-    (is_pk, sql_type, is_array)
+    (is_pk, sql_type, is_array, column_default)
 }
 
 /// Extract `#[sqlx(rename = "...")]` value from field attributes.
@@ -606,5 +613,57 @@ mod tests {
         let entity = parse_entity_source(source).unwrap();
         assert_eq!(entity.imports.len(), 1);
         assert!(entity.imports[0].contains("chrono"));
+    }
+
+    // --- column_default parsing ---
+
+    #[test]
+    fn test_parse_column_default() {
+        let source = r#"
+            #[derive(Debug, Clone, sqlx::FromRow)]
+            #[sqlx_gen(kind = "table", table = "tasks")]
+            pub struct Tasks {
+                #[sqlx_gen(primary_key)]
+                pub id: i32,
+                #[sqlx_gen(column_default = "now()")]
+                pub created_at: String,
+            }
+        "#;
+        let entity = parse_entity_source(source).unwrap();
+        let created_at = &entity.fields[1];
+        assert_eq!(created_at.column_default, Some("now()".to_string()));
+    }
+
+    #[test]
+    fn test_parse_no_column_default() {
+        let source = r#"
+            #[derive(Debug, Clone, sqlx::FromRow)]
+            #[sqlx_gen(kind = "table", table = "tasks")]
+            pub struct Tasks {
+                #[sqlx_gen(primary_key)]
+                pub id: i32,
+                pub title: String,
+            }
+        "#;
+        let entity = parse_entity_source(source).unwrap();
+        let title = &entity.fields[1];
+        assert_eq!(title.column_default, None);
+    }
+
+    #[test]
+    fn test_parse_column_default_with_cast() {
+        let source = r#"
+            #[derive(Debug, Clone, sqlx::FromRow)]
+            #[sqlx_gen(kind = "table", table = "tasks")]
+            pub struct Tasks {
+                #[sqlx_gen(primary_key)]
+                pub id: i32,
+                #[sqlx_gen(column_default = "'idle'::task_status")]
+                pub status: String,
+            }
+        "#;
+        let entity = parse_entity_source(source).unwrap();
+        let status = &entity.fields[1];
+        assert_eq!(status.column_default, Some("'idle'::task_status".to_string()));
     }
 }

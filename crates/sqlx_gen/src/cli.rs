@@ -262,12 +262,13 @@ pub struct Methods {
     pub paginate: bool,
     pub get: bool,
     pub insert: bool,
+    pub insert_many: bool,
     pub update: bool,
     pub overwrite: bool,
     pub delete: bool,
 }
 
-const ALL_METHODS: &[&str] = &["get_all", "paginate", "get", "insert", "update", "overwrite", "delete"];
+const ALL_METHODS: &[&str] = &["get_all", "paginate", "get", "insert", "insert_many", "update", "overwrite", "delete"];
 
 impl Methods {
     /// Parse a list of method names. `"*"` enables all methods.
@@ -280,6 +281,7 @@ impl Methods {
                 "paginate" => m.paginate = true,
                 "get" => m.get = true,
                 "insert" => m.insert = true,
+                "insert_many" => m.insert_many = true,
                 "update" => m.update = true,
                 "overwrite" => m.overwrite = true,
                 "delete" => m.delete = true,
@@ -301,6 +303,7 @@ impl Methods {
             paginate: true,
             get: true,
             insert: true,
+            insert_many: true,
             update: true,
             overwrite: true,
             delete: true,
@@ -492,6 +495,7 @@ mod tests {
         assert!(!m.paginate);
         assert!(!m.get);
         assert!(!m.insert);
+        assert!(!m.insert_many);
         assert!(!m.update);
         assert!(!m.overwrite);
         assert!(!m.delete);
@@ -504,6 +508,7 @@ mod tests {
         assert!(m.paginate);
         assert!(m.get);
         assert!(m.insert);
+        assert!(m.insert_many);
         assert!(m.update);
         assert!(m.overwrite);
         assert!(m.delete);
@@ -540,6 +545,7 @@ mod tests {
         assert!(m.paginate);
         assert!(m.get);
         assert!(m.insert);
+        assert!(m.insert_many);
         assert!(m.update);
         assert!(m.overwrite);
         assert!(m.delete);
@@ -550,6 +556,14 @@ mod tests {
         let m = Methods::from_list(&["overwrite".to_string()]).unwrap();
         assert!(m.overwrite);
         assert!(!m.update);
+    }
+
+    #[test]
+    fn test_parse_insert_many_method() {
+        let m = Methods::from_list(&["insert_many".to_string()]).unwrap();
+        assert!(m.insert_many);
+        assert!(!m.insert);
+        assert!(!m.get);
     }
 
     // ========== module_path_from_file ==========

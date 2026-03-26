@@ -333,6 +333,66 @@ pub fn generate_crud_from_parsed(
         });
     }
 
+    // --- insert_many_transactionally (skip for views) ---
+    if !is_view && methods.insert_many && (!non_pk_fields.is_empty() || !pk_fields.is_empty()) {
+        let insert_params_ident = format_ident!("Insert{}Params", entity.struct_name);
+
+        let insert_source_fields: Vec<&ParsedField> = if non_pk_fields.is_empty() {
+            pk_fields.clone()
+        } else {
+            non_pk_fields.clone()
+        };
+
+        let col_names: Vec<&str> = insert_source_fields.iter().map(|f| f.column_name.as_str()).collect();
+        let col_list = col_names.join(", ");
+        let num_cols = insert_source_fields.len();
+
+        let binds_loop: Vec<TokenStream> = insert_source_fields
+            .iter()
+            .map(|f| {
+                let name = format_ident!("{}", f.rust_name);
+                quote! { query = query.bind(&params.#name); }
+            })
+            .collect();
+
+        let insert_many_method = build_insert_many_transactionally_method(
+            &entity_ident,
+            &insert_params_ident,
+            &col_list,
+            num_cols,
+            &insert_source_fields,
+            &binds_loop,
+            db_kind,
+            &table_name,
+            &pk_fields,
+        );
+        method_tokens.push(insert_many_method);
+
+        // Only generate InsertParams if we haven't generated it from the insert method
+        if !methods.insert {
+            let insert_fields: Vec<TokenStream> = insert_source_fields
+                .iter()
+                .map(|f| {
+                    let name = format_ident!("{}", f.rust_name);
+                    if f.column_default.is_some() && !f.is_nullable {
+                        let ty: TokenStream = format!("Option<{}>", f.rust_type).parse().unwrap();
+                        quote! { pub #name: #ty, }
+                    } else {
+                        let ty: TokenStream = f.rust_type.parse().unwrap();
+                        quote! { pub #name: #ty, }
+                    }
+                })
+                .collect();
+
+            param_structs.push(quote! {
+                #[derive(Debug, Clone, Default)]
+                pub struct #insert_params_ident {
+                    #(#insert_fields)*
+                }
+            });
+        }
+    }
+
     // --- overwrite (full replacement — skip for views, skip when all columns are PKs) ---
     if !is_view && methods.overwrite && !pk_fields.is_empty() && !non_pk_fields.is_empty() {
         let overwrite_params_ident = format_ident!("Overwrite{}Params", entity.struct_name);
@@ -921,6 +981,145 @@ fn build_insert_method_parsed(
                     }
                 }
             }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_insert_many_transactionally_method(
+    entity_ident: &proc_macro2::Ident,
+    insert_params_ident: &proc_macro2::Ident,
+    col_list: &str,
+    num_cols: usize,
+    insert_source_fields: &[&ParsedField],
+    binds_loop: &[TokenStream],
+    db_kind: DatabaseKind,
+    table_name: &str,
+    pk_fields: &[&ParsedField],
+) -> TokenStream {
+    let body = match db_kind {
+        DatabaseKind::Postgres | DatabaseKind::Sqlite => {
+            let col_list_str = col_list.to_string();
+            let table_name_str = table_name.to_string();
+
+            let row_placeholder_exprs: Vec<TokenStream> = insert_source_fields
+                .iter()
+                .enumerate()
+                .map(|(i, f)| {
+                    let offset = i;
+                    match &f.column_default {
+                        Some(default_expr) => {
+                            let def = default_expr.as_str();
+                            match db_kind {
+                                DatabaseKind::Postgres => quote! {
+                                    format!("COALESCE(${}, {})", base + #offset + 1, #def)
+                                },
+                                _ => quote! {
+                                    format!("COALESCE(?, {})", #def)
+                                },
+                            }
+                        }
+                        None => {
+                            match db_kind {
+                                DatabaseKind::Postgres => quote! {
+                                    format!("${}", base + #offset + 1)
+                                },
+                                _ => quote! {
+                                    "?".to_string()
+                                },
+                            }
+                        }
+                    }
+                })
+                .collect();
+
+            quote! {
+                let mut tx = self.pool.begin().await?;
+                let mut all_results = Vec::with_capacity(entries.len());
+                let max_per_chunk = 65535 / #num_cols;
+                for chunk in entries.chunks(max_per_chunk) {
+                    let mut values_parts = Vec::with_capacity(chunk.len());
+                    for (row_idx, _) in chunk.iter().enumerate() {
+                        let base = row_idx * #num_cols;
+                        let placeholders = vec![#(#row_placeholder_exprs),*];
+                        values_parts.push(format!("({})", placeholders.join(", ")));
+                    }
+                    let sql = format!(
+                        "INSERT INTO {} ({}) VALUES {} RETURNING *",
+                        #table_name_str,
+                        #col_list_str,
+                        values_parts.join(", ")
+                    );
+                    let mut query = sqlx::query_as::<_, #entity_ident>(&sql);
+                    for params in chunk {
+                        #(#binds_loop)*
+                    }
+                    let rows = query.fetch_all(&mut *tx).await?;
+                    all_results.extend(rows);
+                }
+                tx.commit().await?;
+                Ok(all_results)
+            }
+        }
+        DatabaseKind::Mysql => {
+            let single_placeholders: String = insert_source_fields
+                .iter()
+                .enumerate()
+                .map(|(i, f)| {
+                    let p = placeholder(db_kind, i + 1);
+                    match &f.column_default {
+                        Some(default_expr) => format!("COALESCE({}, {})", p, default_expr),
+                        None => p,
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            let single_insert_sql = format!(
+                "INSERT INTO {} ({}) VALUES ({})",
+                table_name, col_list, single_placeholders
+            );
+
+            let single_binds: Vec<TokenStream> = insert_source_fields
+                .iter()
+                .map(|f| {
+                    let name = format_ident!("{}", f.rust_name);
+                    quote! { .bind(&params.#name) }
+                })
+                .collect();
+
+            let pk_where = build_where_clause_parsed(pk_fields, db_kind, 1);
+            let select_sql = format!("SELECT * FROM {} WHERE {}", table_name, pk_where);
+
+            quote! {
+                let mut tx = self.pool.begin().await?;
+                let mut results = Vec::with_capacity(entries.len());
+                for params in &entries {
+                    sqlx::query(#single_insert_sql)
+                        #(#single_binds)*
+                        .execute(&mut *tx)
+                        .await?;
+                    let id = sqlx::query_scalar::<_, i64>("SELECT LAST_INSERT_ID()")
+                        .fetch_one(&mut *tx)
+                        .await?;
+                    let row = sqlx::query_as::<_, #entity_ident>(#select_sql)
+                        .bind(id)
+                        .fetch_one(&mut *tx)
+                        .await?;
+                    results.push(row);
+                }
+                tx.commit().await?;
+                Ok(results)
+            }
+        }
+    };
+
+    quote! {
+        pub async fn insert_many_transactionally(
+            &self,
+            entries: Vec<#insert_params_ident>,
+        ) -> Result<Vec<#entity_ident>, sqlx::Error> {
+            #body
         }
     }
 }
@@ -1537,7 +1736,7 @@ mod tests {
 
     #[test]
     fn test_without_insert() {
-        let m = Methods { insert: false, ..Methods::all() };
+        let m = Methods { insert: false, insert_many: false, ..Methods::all() };
         let code = gen_with_methods(&standard_entity(), DatabaseKind::Postgres, &m);
         assert!(!code.contains("pub async fn insert"));
         assert!(!code.contains("InsertUsersParams"));
@@ -1568,6 +1767,7 @@ mod tests {
         assert!(!code.contains("pub async fn update"));
         assert!(!code.contains("pub async fn overwrite"));
         assert!(!code.contains("pub async fn delete"));
+        assert!(!code.contains("pub async fn insert_many"));
     }
 
     // --- imports ---
@@ -1690,7 +1890,9 @@ mod tests {
 
     #[test]
     fn test_macro_get_all() {
-        let code = gen_macro(&standard_entity(), DatabaseKind::Postgres);
+        let m = Methods { get_all: true, ..Default::default() };
+        let (tokens, _) = generate_crud_from_parsed(&standard_entity(), DatabaseKind::Postgres, "crate::models::users", &m, true, PoolVisibility::Private);
+        let code = parse_and_format(&tokens);
         assert!(code.contains("query_as!"));
         assert!(!code.contains("query_as::<"));
     }
@@ -1743,7 +1945,10 @@ mod tests {
 
     #[test]
     fn test_macro_no_bind_calls() {
-        let code = gen_macro(&standard_entity(), DatabaseKind::Postgres);
+        // insert_many always uses runtime mode, so exclude it for this test
+        let m = Methods { insert_many: false, ..Methods::all() };
+        let (tokens, _) = generate_crud_from_parsed(&standard_entity(), DatabaseKind::Postgres, "crate::models::users", &m, true, PoolVisibility::Private);
+        let code = parse_and_format(&tokens);
         assert!(!code.contains(".bind("));
     }
 
@@ -2041,5 +2246,110 @@ mod tests {
         let code = gen(&junction_entity(), DatabaseKind::Postgres);
         assert!(code.contains("pub async fn get"), "Expected get method:\n{}", code);
         assert!(code.contains("WHERE record_id = $1 AND analysis_id = $2"), "Expected WHERE clause with both PK columns:\n{}", code);
+    }
+
+    // --- insert_many_transactionally ---
+
+    #[test]
+    fn test_insert_many_transactionally_method_generated() {
+        let code = gen(&standard_entity(), DatabaseKind::Postgres);
+        assert!(code.contains("pub async fn insert_many_transactionally"), "Expected insert_many_transactionally method:\n{}", code);
+    }
+
+    #[test]
+    fn test_insert_many_transactionally_signature() {
+        let code = gen(&standard_entity(), DatabaseKind::Postgres);
+        assert!(code.contains("entries: Vec<InsertUsersParams>"), "Expected Vec<InsertUsersParams> param:\n{}", code);
+        assert!(code.contains("Result<Vec<Users>"), "Expected Result<Vec<Users>> return type:\n{}", code);
+    }
+
+    #[test]
+    fn test_insert_many_transactionally_no_strategy_enum() {
+        let code = gen(&standard_entity(), DatabaseKind::Postgres);
+        assert!(!code.contains("TransactionStrategy"), "TransactionStrategy should not be generated:\n{}", code);
+        assert!(!code.contains("InsertManyUsersResult"), "InsertManyUsersResult should not be generated:\n{}", code);
+    }
+
+    #[test]
+    fn test_insert_many_transactionally_uses_transaction_pg() {
+        let code = gen(&standard_entity(), DatabaseKind::Postgres);
+        let method_start = code.find("fn insert_many_transactionally").expect("insert_many_transactionally not found");
+        let method_body = &code[method_start..];
+        assert!(method_body.contains("self.pool.begin()"), "Expected begin():\n{}", method_body);
+        assert!(method_body.contains("tx.commit()"), "Expected commit():\n{}", method_body);
+    }
+
+    #[test]
+    fn test_insert_many_transactionally_multi_row_pg() {
+        let code = gen(&standard_entity(), DatabaseKind::Postgres);
+        let method_start = code.find("fn insert_many_transactionally").expect("not found");
+        let method_body = &code[method_start..];
+        assert!(method_body.contains("RETURNING *"), "Expected RETURNING * in multi-row SQL:\n{}", method_body);
+        assert!(method_body.contains("values_parts"), "Expected multi-row VALUES building:\n{}", method_body);
+        assert!(method_body.contains("65535"), "Expected chunk size limit:\n{}", method_body);
+    }
+
+    #[test]
+    fn test_insert_many_transactionally_multi_row_sqlite() {
+        let code = gen(&standard_entity(), DatabaseKind::Sqlite);
+        let method_start = code.find("fn insert_many_transactionally").expect("not found");
+        let method_body = &code[method_start..];
+        assert!(method_body.contains("values_parts"), "Expected multi-row VALUES building for SQLite:\n{}", method_body);
+        assert!(method_body.contains("RETURNING *"), "Expected RETURNING * for SQLite:\n{}", method_body);
+    }
+
+    #[test]
+    fn test_insert_many_transactionally_mysql_individual_inserts() {
+        let code = gen(&standard_entity(), DatabaseKind::Mysql);
+        let method_start = code.find("fn insert_many_transactionally").expect("not found");
+        let method_body = &code[method_start..];
+        assert!(method_body.contains("LAST_INSERT_ID"), "Expected LAST_INSERT_ID for MySQL:\n{}", method_body);
+        assert!(method_body.contains("self.pool.begin()"), "Expected begin() for MySQL:\n{}", method_body);
+    }
+
+    #[test]
+    fn test_insert_many_transactionally_view_not_generated() {
+        let mut entity = standard_entity();
+        entity.is_view = true;
+        let code = gen(&entity, DatabaseKind::Postgres);
+        assert!(!code.contains("pub async fn insert_many_transactionally"), "should not be generated for views");
+    }
+
+    #[test]
+    fn test_insert_many_transactionally_without_method_not_generated() {
+        let m = Methods { insert_many: false, ..Methods::all() };
+        let code = gen_with_methods(&standard_entity(), DatabaseKind::Postgres, &m);
+        assert!(!code.contains("pub async fn insert_many_transactionally"), "should not be generated when disabled");
+    }
+
+    #[test]
+    fn test_insert_many_transactionally_generates_params_when_insert_disabled() {
+        let m = Methods { insert: false, insert_many: true, ..Default::default() };
+        let code = gen_with_methods(&standard_entity(), DatabaseKind::Postgres, &m);
+        assert!(code.contains("pub struct InsertUsersParams"), "Expected InsertUsersParams:\n{}", code);
+        assert!(code.contains("pub async fn insert_many_transactionally"), "Expected method:\n{}", code);
+        assert!(!code.contains("pub async fn insert("), "insert should not be present:\n{}", code);
+    }
+
+    #[test]
+    fn test_insert_many_transactionally_with_column_defaults_coalesce() {
+        let code = gen(&entity_with_defaults(), DatabaseKind::Postgres);
+        let method_start = code.find("fn insert_many_transactionally").expect("not found");
+        let method_body = &code[method_start..];
+        assert!(method_body.contains("COALESCE"), "Expected COALESCE for fields with defaults:\n{}", method_body);
+    }
+
+    #[test]
+    fn test_insert_many_transactionally_junction_table() {
+        let code = gen(&junction_entity(), DatabaseKind::Postgres);
+        assert!(code.contains("pub async fn insert_many_transactionally"), "Expected method for junction table:\n{}", code);
+    }
+
+    #[test]
+    fn test_insert_many_transactionally_all_three_backends_compile() {
+        for db in [DatabaseKind::Postgres, DatabaseKind::Mysql, DatabaseKind::Sqlite] {
+            let code = gen(&standard_entity(), db);
+            assert!(code.contains("pub async fn insert_many_transactionally"), "Expected method for {:?}", db);
+        }
     }
 }

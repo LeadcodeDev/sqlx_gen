@@ -66,7 +66,7 @@ pub fn generate_crud_from_parsed(
 
     // --- get_all ---
     if methods.get_all {
-        let sql = format!("SELECT * FROM {}", table_name);
+        let sql = raw_sql_lit(&format!("SELECT * FROM {}", table_name));
         let method = if use_macro {
             quote! {
                 pub async fn get_all(&self) -> Result<Vec<#entity_ident>, sqlx::Error> {
@@ -92,11 +92,11 @@ pub fn generate_crud_from_parsed(
         let paginate_params_ident = format_ident!("Paginate{}Params", entity.struct_name);
         let paginated_ident = format_ident!("Paginated{}", entity.struct_name);
         let pagination_meta_ident = format_ident!("Pagination{}Meta", entity.struct_name);
-        let count_sql = format!("SELECT COUNT(*) FROM {}", table_name);
-        let sql = match db_kind {
-            DatabaseKind::Postgres => format!("SELECT * FROM {} LIMIT $1 OFFSET $2", table_name),
-            DatabaseKind::Mysql | DatabaseKind::Sqlite => format!("SELECT * FROM {} LIMIT ? OFFSET ?", table_name),
-        };
+        let count_sql = raw_sql_lit(&format!("SELECT COUNT(*) FROM {}", table_name));
+        let sql = raw_sql_lit(&match db_kind {
+            DatabaseKind::Postgres => format!("SELECT *\nFROM {}\nLIMIT $1 OFFSET $2", table_name),
+            DatabaseKind::Mysql | DatabaseKind::Sqlite => format!("SELECT *\nFROM {}\nLIMIT ? OFFSET ?", table_name),
+        });
         let method = if use_macro {
             quote! {
                 pub async fn paginate(&self, params: &#paginate_params_ident) -> Result<#paginated_ident, sqlx::Error> {
@@ -191,8 +191,8 @@ pub fn generate_crud_from_parsed(
 
         let where_clause = build_where_clause_parsed(&pk_fields, db_kind, 1);
         let where_clause_cast = build_where_clause_cast(&pk_fields, db_kind, 1);
-        let sql = format!("SELECT * FROM {} WHERE {}", table_name, where_clause);
-        let sql_macro = format!("SELECT * FROM {} WHERE {}", table_name, where_clause_cast);
+        let sql = raw_sql_lit(&format!("SELECT *\nFROM {}\nWHERE {}", table_name, where_clause));
+        let sql_macro = raw_sql_lit(&format!("SELECT *\nFROM {}\nWHERE {}", table_name, where_clause_cast));
 
         let binds: Vec<TokenStream> = pk_fields
             .iter()
@@ -289,13 +289,13 @@ pub fn generate_crud_from_parsed(
         let build_insert_sql = |ph: &str| match db_kind {
             DatabaseKind::Postgres | DatabaseKind::Sqlite => {
                 format!(
-                    "INSERT INTO {} ({}) VALUES ({}) RETURNING *",
+                    "INSERT INTO {} ({})\nVALUES ({})\nRETURNING *",
                     table_name, col_list, ph
                 )
             }
             DatabaseKind::Mysql => {
                 format!(
-                    "INSERT INTO {} ({}) VALUES ({})",
+                    "INSERT INTO {} ({})\nVALUES ({})",
                     table_name, col_list, ph
                 )
             }
@@ -425,7 +425,7 @@ pub fn generate_crud_from_parsed(
                 format!("{} = {}", f.column_name, p)
             })
             .collect();
-        let set_clause = set_cols.join(", ");
+        let set_clause = set_cols.join(",\n  ");
 
         let set_cols_cast: Vec<String> = non_pk_fields
             .iter()
@@ -435,7 +435,7 @@ pub fn generate_crud_from_parsed(
                 format!("{} = {}", f.column_name, p)
             })
             .collect();
-        let set_clause_cast = set_cols_cast.join(", ");
+        let set_clause_cast = set_cols_cast.join(",\n  ");
 
         let pk_start = non_pk_fields.len() + 1;
         let where_clause = build_where_clause_parsed(&pk_fields, db_kind, pk_start);
@@ -443,14 +443,14 @@ pub fn generate_crud_from_parsed(
 
         let build_overwrite_sql = |sc: &str, wc: &str| match db_kind {
             DatabaseKind::Postgres | DatabaseKind::Sqlite => {
-                format!("UPDATE {} SET {} WHERE {} RETURNING *", table_name, sc, wc)
+                format!("UPDATE {}\nSET\n  {}\nWHERE {}\nRETURNING *", table_name, sc, wc)
             }
             DatabaseKind::Mysql => {
-                format!("UPDATE {} SET {} WHERE {}", table_name, sc, wc)
+                format!("UPDATE {}\nSET\n  {}\nWHERE {}", table_name, sc, wc)
             }
         };
-        let sql = build_overwrite_sql(&set_clause, &where_clause);
-        let sql_macro = build_overwrite_sql(&set_clause_cast, &where_clause_cast);
+        let sql = raw_sql_lit(&build_overwrite_sql(&set_clause, &where_clause));
+        let sql_macro = raw_sql_lit(&build_overwrite_sql(&set_clause_cast, &where_clause_cast));
 
         // Bind non-PK first (from params), then PK (from function args)
         let mut all_binds: Vec<TokenStream> = non_pk_fields
@@ -488,7 +488,7 @@ pub fn generate_crud_from_parsed(
                 }
                 DatabaseKind::Mysql => {
                     let pk_where_select = build_where_clause_parsed(&pk_fields, db_kind, 1);
-                    let select_sql = format!("SELECT * FROM {} WHERE {}", table_name, pk_where_select);
+                    let select_sql = raw_sql_lit(&format!("SELECT *\nFROM {}\nWHERE {}", table_name, pk_where_select));
                     let pk_macro_args: Vec<TokenStream> = pk_fields
                         .iter()
                         .map(|f| {
@@ -522,7 +522,7 @@ pub fn generate_crud_from_parsed(
                 }
                 DatabaseKind::Mysql => {
                     let pk_where_select = build_where_clause_parsed(&pk_fields, db_kind, 1);
-                    let select_sql = format!("SELECT * FROM {} WHERE {}", table_name, pk_where_select);
+                    let select_sql = raw_sql_lit(&format!("SELECT *\nFROM {}\nWHERE {}", table_name, pk_where_select));
                     let pk_binds: Vec<TokenStream> = pk_fields
                         .iter()
                         .map(|f| {
@@ -594,7 +594,7 @@ pub fn generate_crud_from_parsed(
                 format!("{col} = COALESCE({p}, {col})", col = f.column_name, p = p)
             })
             .collect();
-        let set_clause = set_cols.join(", ");
+        let set_clause = set_cols.join(",\n  ");
 
         // SET clause with COALESCE and casts for macro mode
         let set_cols_cast: Vec<String> = non_pk_fields
@@ -605,7 +605,7 @@ pub fn generate_crud_from_parsed(
                 format!("{col} = COALESCE({p}, {col})", col = f.column_name, p = p)
             })
             .collect();
-        let set_clause_cast = set_cols_cast.join(", ");
+        let set_clause_cast = set_cols_cast.join(",\n  ");
 
         let pk_start = non_pk_fields.len() + 1;
         let where_clause = build_where_clause_parsed(&pk_fields, db_kind, pk_start);
@@ -614,19 +614,19 @@ pub fn generate_crud_from_parsed(
         let build_update_sql = |sc: &str, wc: &str| match db_kind {
             DatabaseKind::Postgres | DatabaseKind::Sqlite => {
                 format!(
-                    "UPDATE {} SET {} WHERE {} RETURNING *",
+                    "UPDATE {}\nSET\n  {}\nWHERE {}\nRETURNING *",
                     table_name, sc, wc
                 )
             }
             DatabaseKind::Mysql => {
                 format!(
-                    "UPDATE {} SET {} WHERE {}",
+                    "UPDATE {}\nSET\n  {}\nWHERE {}",
                     table_name, sc, wc
                 )
             }
         };
-        let sql = build_update_sql(&set_clause, &where_clause);
-        let sql_macro = build_update_sql(&set_clause_cast, &where_clause_cast);
+        let sql = raw_sql_lit(&build_update_sql(&set_clause, &where_clause));
+        let sql_macro = raw_sql_lit(&build_update_sql(&set_clause_cast, &where_clause_cast));
 
         // Bind non-PK first (from params), then PK (from function args)
         let mut all_binds: Vec<TokenStream> = non_pk_fields
@@ -664,7 +664,7 @@ pub fn generate_crud_from_parsed(
                 }
                 DatabaseKind::Mysql => {
                     let pk_where_select = build_where_clause_parsed(&pk_fields, db_kind, 1);
-                    let select_sql = format!("SELECT * FROM {} WHERE {}", table_name, pk_where_select);
+                    let select_sql = raw_sql_lit(&format!("SELECT *\nFROM {}\nWHERE {}", table_name, pk_where_select));
                     let pk_macro_args: Vec<TokenStream> = pk_fields
                         .iter()
                         .map(|f| {
@@ -698,7 +698,7 @@ pub fn generate_crud_from_parsed(
                 }
                 DatabaseKind::Mysql => {
                     let pk_where_select = build_where_clause_parsed(&pk_fields, db_kind, 1);
-                    let select_sql = format!("SELECT * FROM {} WHERE {}", table_name, pk_where_select);
+                    let select_sql = raw_sql_lit(&format!("SELECT *\nFROM {}\nWHERE {}", table_name, pk_where_select));
                     let pk_binds: Vec<TokenStream> = pk_fields
                         .iter()
                         .map(|f| {
@@ -744,8 +744,8 @@ pub fn generate_crud_from_parsed(
 
         let where_clause = build_where_clause_parsed(&pk_fields, db_kind, 1);
         let where_clause_cast = build_where_clause_cast(&pk_fields, db_kind, 1);
-        let sql = format!("DELETE FROM {} WHERE {}", table_name, where_clause);
-        let sql_macro = format!("DELETE FROM {} WHERE {}", table_name, where_clause_cast);
+        let sql = raw_sql_lit(&format!("DELETE FROM {}\nWHERE {}", table_name, where_clause));
+        let sql_macro = raw_sql_lit(&format!("DELETE FROM {}\nWHERE {}", table_name, where_clause_cast));
 
         let binds: Vec<TokenStream> = pk_fields
             .iter()
@@ -815,6 +815,16 @@ fn pool_type_tokens(db_kind: DatabaseKind) -> TokenStream {
         DatabaseKind::Postgres => quote! { sqlx::PgPool },
         DatabaseKind::Mysql => quote! { sqlx::MySqlPool },
         DatabaseKind::Sqlite => quote! { sqlx::SqlitePool },
+    }
+}
+
+/// Wraps a SQL string as a raw string literal `r#"..."#` in the generated code.
+/// Multi-line SQL gets a leading newline so each clause starts on its own line.
+fn raw_sql_lit(s: &str) -> TokenStream {
+    if s.contains('\n') {
+        format!("r#\"\n{}\n\"#", s).parse().unwrap()
+    } else {
+        format!("r#\"{}\"#", s).parse().unwrap()
     }
 }
 
@@ -916,6 +926,9 @@ fn build_insert_method_parsed(
     non_pk_fields: &[&ParsedField],
     use_macro: bool,
 ) -> TokenStream {
+    let sql = raw_sql_lit(sql);
+    let sql_macro = raw_sql_lit(sql_macro);
+
     if use_macro {
         let macro_args: Vec<TokenStream> = non_pk_fields
             .iter()
@@ -934,13 +947,14 @@ fn build_insert_method_parsed(
             }
             DatabaseKind::Mysql => {
                 let pk_where = build_where_clause_parsed(pk_fields, db_kind, 1);
-                let select_sql = format!("SELECT * FROM {} WHERE {}", table_name, pk_where);
+                let select_sql = raw_sql_lit(&format!("SELECT *\nFROM {}\nWHERE {}", table_name, pk_where));
+                let last_insert_id_sql = raw_sql_lit("SELECT LAST_INSERT_ID() as id");
                 quote! {
                     pub async fn insert(&self, params: &#insert_params_ident) -> Result<#entity_ident, sqlx::Error> {
                         sqlx::query!(#sql_macro, #(#macro_args),*)
                             .execute(&self.pool)
                             .await?;
-                        let id = sqlx::query_scalar!("SELECT LAST_INSERT_ID() as id")
+                        let id = sqlx::query_scalar!(#last_insert_id_sql)
                             .fetch_one(&self.pool)
                             .await?;
                         sqlx::query_as!(#entity_ident, #select_sql, id)
@@ -964,14 +978,15 @@ fn build_insert_method_parsed(
             }
             DatabaseKind::Mysql => {
                 let pk_where = build_where_clause_parsed(pk_fields, db_kind, 1);
-                let select_sql = format!("SELECT * FROM {} WHERE {}", table_name, pk_where);
+                let select_sql = raw_sql_lit(&format!("SELECT *\nFROM {}\nWHERE {}", table_name, pk_where));
+                let last_insert_id_sql = raw_sql_lit("SELECT LAST_INSERT_ID()");
                 quote! {
                     pub async fn insert(&self, params: &#insert_params_ident) -> Result<#entity_ident, sqlx::Error> {
                         sqlx::query(#sql)
                             #(#binds)*
                             .execute(&self.pool)
                             .await?;
-                        let id = sqlx::query_scalar::<_, i64>("SELECT LAST_INSERT_ID()")
+                        let id = sqlx::query_scalar::<_, i64>(#last_insert_id_sql)
                             .fetch_one(&self.pool)
                             .await?;
                         sqlx::query_as::<_, #entity_ident>(#select_sql)
@@ -1045,7 +1060,7 @@ fn build_insert_many_transactionally_method(
                         values_parts.push(format!("({})", placeholders.join(", ")));
                     }
                     let sql = format!(
-                        "INSERT INTO {} ({}) VALUES {} RETURNING *",
+                        "INSERT INTO {} ({})\nVALUES {}\nRETURNING *",
                         #table_name_str,
                         #col_list_str,
                         values_parts.join(", ")
@@ -1075,10 +1090,10 @@ fn build_insert_many_transactionally_method(
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            let single_insert_sql = format!(
-                "INSERT INTO {} ({}) VALUES ({})",
+            let single_insert_sql = raw_sql_lit(&format!(
+                "INSERT INTO {} ({})\nVALUES ({})",
                 table_name, col_list, single_placeholders
-            );
+            ));
 
             let single_binds: Vec<TokenStream> = insert_source_fields
                 .iter()
@@ -1089,7 +1104,8 @@ fn build_insert_many_transactionally_method(
                 .collect();
 
             let pk_where = build_where_clause_parsed(pk_fields, db_kind, 1);
-            let select_sql = format!("SELECT * FROM {} WHERE {}", table_name, pk_where);
+            let select_sql = raw_sql_lit(&format!("SELECT *\nFROM {}\nWHERE {}", table_name, pk_where));
+            let last_insert_id_sql = raw_sql_lit("SELECT LAST_INSERT_ID()");
 
             quote! {
                 let mut tx = self.pool.begin().await?;
@@ -1099,7 +1115,7 @@ fn build_insert_many_transactionally_method(
                         #(#single_binds)*
                         .execute(&mut *tx)
                         .await?;
-                    let id = sqlx::query_scalar::<_, i64>("SELECT LAST_INSERT_ID()")
+                    let id = sqlx::query_scalar::<_, i64>(#last_insert_id_sql)
                         .fetch_one(&mut *tx)
                         .await?;
                     let row = sqlx::query_as::<_, #entity_ident>(#select_sql)
@@ -1127,6 +1143,7 @@ fn build_insert_many_transactionally_method(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codegen::parse_and_format_with_tab_spaces;
     use crate::codegen::parse_and_format;
     use crate::cli::Methods;
 
@@ -1209,6 +1226,12 @@ mod tests {
     fn gen_with_methods(entity: &ParsedEntity, db: DatabaseKind, methods: &Methods) -> String {
         let (tokens, _) = generate_crud_from_parsed(entity, db, "crate::models::users", methods, false, PoolVisibility::Private);
         parse_and_format(&tokens)
+    }
+
+    fn gen_with_tab_spaces(entity: &ParsedEntity, db: DatabaseKind, tab_spaces: usize) -> String {
+        let skip = Methods::all();
+        let (tokens, _) = generate_crud_from_parsed(entity, db, "crate::models::users", &skip, false, PoolVisibility::Private);
+        parse_and_format_with_tab_spaces(&tokens, tab_spaces)
     }
 
     // --- basic structure ---
@@ -1593,7 +1616,9 @@ mod tests {
     #[test]
     fn test_overwrite_set_clause_pg() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("SET name = $1, email = $2 WHERE id = $3"));
+        assert!(code.contains("name = $1,"));
+        assert!(code.contains("email = $2"));
+        assert!(code.contains("WHERE id = $3"));
     }
 
     #[test]
@@ -1640,7 +1665,24 @@ mod tests {
     #[test]
     fn test_delete_where_pk() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("DELETE FROM users WHERE id = $1"));
+        assert!(code.contains("DELETE FROM users"));
+        assert!(code.contains("WHERE id = $1"));
+    }
+
+    #[test]
+    fn test_tab_spaces_2_sql_indent() {
+        let code = gen_with_tab_spaces(&standard_entity(), DatabaseKind::Postgres, 2);
+        // SQL content at 8 spaces (4 + 2×2), "# at 6 spaces (4 + 2)
+        assert!(code.contains("        SELECT *"), "Expected SQL at 8-space indent:\n{}", code);
+        assert!(code.contains("      \"#"), "Expected closing tag at 6-space indent:\n{}", code);
+    }
+
+    #[test]
+    fn test_tab_spaces_4_sql_indent() {
+        let code = gen_with_tab_spaces(&standard_entity(), DatabaseKind::Postgres, 4);
+        // SQL content at 12 spaces (4 + 2×4), "# at 8 spaces (4 + 4)
+        assert!(code.contains("            SELECT *"), "Expected SQL at 12-space indent:\n{}", code);
+        assert!(code.contains("        \"#"), "Expected closing tag at 8-space indent:\n{}", code);
     }
 
     #[test]
@@ -2222,7 +2264,9 @@ mod tests {
         assert!(code.contains("pub struct InsertAnalysisRecordParams"), "Expected InsertAnalysisRecordParams struct:\n{}", code);
         assert!(code.contains("pub record_id"), "Expected record_id field in insert params:\n{}", code);
         assert!(code.contains("pub analysis_id"), "Expected analysis_id field in insert params:\n{}", code);
-        assert!(code.contains("INSERT INTO analysis.analysis__record (record_id, analysis_id) VALUES ($1, $2) RETURNING *"), "Expected valid INSERT SQL:\n{}", code);
+        assert!(code.contains("INSERT INTO analysis.analysis__record (record_id, analysis_id)"), "Expected INSERT INTO clause:\n{}", code);
+        assert!(code.contains("VALUES ($1, $2)"), "Expected VALUES clause:\n{}", code);
+        assert!(code.contains("RETURNING *"), "Expected RETURNING clause:\n{}", code);
         assert!(code.contains("pub async fn insert"), "Expected insert method:\n{}", code);
     }
 
@@ -2238,7 +2282,8 @@ mod tests {
     fn test_composite_pk_only_delete_generated() {
         let code = gen(&junction_entity(), DatabaseKind::Postgres);
         assert!(code.contains("pub async fn delete"), "Expected delete method:\n{}", code);
-        assert!(code.contains("DELETE FROM analysis.analysis__record WHERE record_id = $1 AND analysis_id = $2"), "Expected valid DELETE SQL:\n{}", code);
+        assert!(code.contains("DELETE FROM analysis.analysis__record"), "Expected DELETE clause:\n{}", code);
+        assert!(code.contains("WHERE record_id = $1 AND analysis_id = $2"), "Expected WHERE clause:\n{}", code);
     }
 
     #[test]

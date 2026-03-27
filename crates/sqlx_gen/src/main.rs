@@ -128,7 +128,7 @@ fn run_crud(args: CrudArgs) -> Result<()> {
 
     if args.methods.is_empty() {
         return Err(sqlx_gen::error::Error::Config(
-            "--methods is required. Use -m '*' for all, or specify methods: get_all,paginate,get,insert,update,overwrite,delete".to_string()
+            "--methods is required. Use -m '*' for all, or specify methods: get_all,paginate,get,insert,insert_many,update,overwrite,delete".to_string()
         ));
     }
 
@@ -143,7 +143,8 @@ fn run_crud(args: CrudArgs) -> Result<()> {
         args.pool_visibility,
     );
 
-    let code = codegen::format_tokens_with_imports(&tokens, &imports);
+    let tab_spaces = codegen::detect_tab_spaces(&args.output_dir);
+    let code = codegen::format_tokens_with_imports_and_tab_spaces(&tokens, &imports, tab_spaces);
 
     if args.dry_run {
         println!("{}", code);

@@ -127,7 +127,7 @@ pub struct CrudArgs {
     #[arg(short = 'o', long, default_value = "src/crud")]
     pub output_dir: PathBuf,
 
-    /// Methods to generate (comma-separated): *, get_all, paginate, get, insert, update, delete
+    /// Methods to generate (comma-separated): *, get_all, paginate, get, insert, insert_many, update, overwrite, delete
     #[arg(short = 'm', long, value_delimiter = ',')]
     pub methods: Vec<String>,
 

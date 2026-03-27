@@ -153,6 +153,13 @@ fn detect_custom_sql_type(udt_name: &str, schema_info: &SchemaInfo) -> (Option<S
         return (Some(base_name.to_string()), is_array);
     }
 
+    // Native arrays of builtin types (e.g. `_text` → `text[]`) need sql_type annotation
+    // so that codegen falls back to runtime mode — `query_as!` macro doesn't support
+    // `Vec<T>` without `PgHasArrayType`.
+    if is_array {
+        return (Some(base_name.to_string()), true);
+    }
+
     (None, false)
 }
 
@@ -472,5 +479,42 @@ mod tests {
         overrides.insert("jsonb".to_string(), "MyJson".to_string());
         let (code, _) = gen_with(&table, &schema, DatabaseKind::Postgres, &[], &overrides);
         assert!(code.contains("Option<MyJson>"));
+    }
+
+    // --- native array types ---
+
+    #[test]
+    fn test_native_array_text_gets_sql_type_annotation() {
+        let table = make_table("posts", vec![make_col("tags", "_text", false)]);
+        let code = gen(&table);
+        assert!(code.contains("Vec<String>"));
+        assert!(code.contains("sql_type = \"text\""));
+        assert!(code.contains("is_array"));
+    }
+
+    #[test]
+    fn test_native_array_int4_gets_sql_type_annotation() {
+        let table = make_table("data", vec![make_col("values", "_int4", false)]);
+        let code = gen(&table);
+        assert!(code.contains("Vec<i32>"));
+        assert!(code.contains("sql_type = \"int4\""));
+        assert!(code.contains("is_array"));
+    }
+
+    #[test]
+    fn test_native_array_nullable_gets_sql_type_annotation() {
+        let table = make_table("posts", vec![make_col("tags", "_text", true)]);
+        let code = gen(&table);
+        assert!(code.contains("Option<Vec<String>>"));
+        assert!(code.contains("sql_type = \"text\""));
+        assert!(code.contains("is_array"));
+    }
+
+    #[test]
+    fn test_scalar_builtin_no_sql_type_annotation() {
+        let table = make_table("users", vec![make_col("name", "text", false)]);
+        let code = gen(&table);
+        assert!(code.contains("pub name: String"));
+        assert!(!code.contains("sql_type"));
     }
 }

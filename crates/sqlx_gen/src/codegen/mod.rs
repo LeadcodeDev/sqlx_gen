@@ -6,6 +6,7 @@ pub mod enum_gen;
 pub mod struct_gen;
 
 use std::collections::{BTreeSet, HashMap};
+use std::path::Path;
 
 use proc_macro2::TokenStream;
 
@@ -272,14 +273,52 @@ fn filter_imports(imports: &BTreeSet<String>, single_file: bool) -> BTreeSet<Str
     }
 }
 
+/// Detect `tab_spaces` from `rustfmt.toml` or `.rustfmt.toml` by walking up
+/// from `start_dir`. Returns 4 (rustfmt default) if no config is found.
+pub fn detect_tab_spaces(start_dir: &Path) -> usize {
+    let mut dir = if start_dir.is_file() {
+        start_dir.parent().unwrap_or(start_dir)
+    } else {
+        start_dir
+    };
+    loop {
+        for name in &["rustfmt.toml", ".rustfmt.toml"] {
+            let candidate = dir.join(name);
+            if let Ok(content) = std::fs::read_to_string(&candidate) {
+                for line in content.lines() {
+                    let line = line.trim();
+                    if let Some(rest) = line.strip_prefix("tab_spaces") {
+                        let rest = rest.trim_start().strip_prefix('=').unwrap_or(rest);
+                        if let Ok(n) = rest.trim().parse::<usize>() {
+                            return n;
+                        }
+                    }
+                }
+                // Config found but no tab_spaces key → use rustfmt default
+                return 4;
+            }
+        }
+        match dir.parent() {
+            Some(parent) => dir = parent,
+            None => return 4,
+        }
+    }
+}
+
 /// Parse and format a TokenStream via prettyplease, then post-process spacing.
+/// `tab_spaces` controls how many spaces per indentation level for SQL inside raw strings.
 pub(crate) fn parse_and_format(tokens: &TokenStream) -> String {
+    parse_and_format_with_tab_spaces(tokens, 4)
+}
+
+pub(crate) fn parse_and_format_with_tab_spaces(tokens: &TokenStream, tab_spaces: usize) -> String {
     let file = syn::parse2::<syn::File>(tokens.clone()).unwrap_or_else(|e| {
         log::error!("Failed to parse generated code: {}", e);
         log::error!("This is a bug in sqlx-gen. Raw tokens:\n  {}", tokens);
         std::process::exit(1);
     });
     let raw = prettyplease::unparse(&file);
+    let raw = indent_multiline_raw_strings(&raw, tab_spaces);
     add_blank_lines_between_items(&raw)
 }
 
@@ -289,7 +328,11 @@ pub(crate) fn format_tokens(tokens: &TokenStream) -> String {
 }
 
 pub fn format_tokens_with_imports(tokens: &TokenStream, imports: &BTreeSet<String>) -> String {
-    let formatted = parse_and_format(tokens);
+    format_tokens_with_imports_and_tab_spaces(tokens, imports, 4)
+}
+
+pub fn format_tokens_with_imports_and_tab_spaces(tokens: &TokenStream, imports: &BTreeSet<String>, tab_spaces: usize) -> String {
+    let formatted = parse_and_format_with_tab_spaces(tokens, tab_spaces);
 
     let used_imports: Vec<&String> = imports
         .iter()
@@ -344,6 +387,69 @@ fn is_import_used(import: &str, code: &str) -> bool {
 /// - Add blank lines between enum variants with `#[sqlx(rename`
 /// - Add blank lines between top-level items (structs, impls)
 /// - Add blank lines between logical blocks inside async methods
+/// Indent the content of multi-line raw string literals (`r#"..."#`) so SQL
+/// reads naturally in generated code. All SQL raw strings live inside `impl`
+/// methods, so content is indented at a fixed 2-level depth and relative
+/// indentation between SQL lines is preserved (e.g. SET items indented under
+/// the SET keyword).
+fn indent_multiline_raw_strings(code: &str, tab_spaces: usize) -> String {
+    // Raw string content is NOT reformatted by external formatters, so we must
+    // bake the right indentation at generation time.
+    // The closing "# aligns with the r#" argument level (3 indent levels deep),
+    // and SQL content gets one extra level beyond that.
+    let close_indent = 4 + tab_spaces;   // impl(4) + fn_arg(tab)
+    let sql_indent = 4 + 2 * tab_spaces; // impl(4) + fn_arg(tab) + sql(tab)
+
+    let lines: Vec<&str> = code.lines().collect();
+    let mut result = Vec::with_capacity(lines.len());
+    let mut inside_raw = false;
+    let mut raw_lines: Vec<&str> = Vec::new();
+
+    for line in &lines {
+        if !inside_raw {
+            if let Some(pos) = line.find("r#\"") {
+                let after = &line[pos + 3..];
+                if !after.contains("\"#") {
+                    inside_raw = true;
+                    raw_lines.clear();
+                }
+            }
+            result.push(line.to_string());
+        } else if line.trim_start().starts_with("\"#") {
+            // Find minimum indentation among non-empty content lines
+            let min_indent = raw_lines
+                .iter()
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| l.len() - l.trim_start().len())
+                .min()
+                .unwrap_or(0);
+            for raw_line in &raw_lines {
+                let trimmed = raw_line.trim();
+                if trimmed.is_empty() {
+                    result.push(String::new());
+                } else {
+                    let original_indent = raw_line.len() - raw_line.trim_start().len();
+                    let relative = original_indent.saturating_sub(min_indent);
+                    result.push(format!(
+                        "{}{}{}",
+                        " ".repeat(sql_indent),
+                        " ".repeat(relative),
+                        trimmed
+                    ));
+                }
+            }
+            // Closing "# at method body level
+            let trimmed = line.trim();
+            result.push(format!("{}{}", " ".repeat(close_indent), trimmed));
+            inside_raw = false;
+        } else {
+            raw_lines.push(line);
+        }
+    }
+
+    result.join("\n")
+}
+
 fn add_blank_lines_between_items(code: &str) -> String {
     let lines: Vec<&str> = code.lines().collect();
     let mut result = Vec::with_capacity(lines.len());

@@ -1,6 +1,6 @@
 [package]
 name = "sqlx-gen"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2021"
 description = "Generate Rust structs from database schema introspection"
 license = "MIT"
@@ -30,7 +30,7 @@ cli = [
 ]
 
 [dependencies]
-sqlx-gen-macros = { path = "../sqlx_gen_macros", version = "0.5.2" }
+sqlx-gen-macros = { path = "../sqlx_gen_macros", version = "0.5.3" }
 sqlx = { version = "0.8", features = [
     "runtime-tokio",
     "tls-rustls-ring",

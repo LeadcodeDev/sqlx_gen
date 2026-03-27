@@ -178,8 +178,18 @@ fn extract_attr_value(tokens: &str, key: &str) -> Option<String> {
     let pattern = format!("{} = \"", key);
     let start = tokens.find(&pattern)? + pattern.len();
     let rest = &tokens[start..];
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
+    let bytes = rest.as_bytes();
+    let mut end = 0;
+    while end < bytes.len() {
+        if bytes[end] == b'"' && (end == 0 || bytes[end - 1] != b'\\') {
+            break;
+        }
+        end += 1;
+    }
+    if end >= bytes.len() {
+        return None;
+    }
+    Some(rest[..end].replace("\\\"", "\""))
 }
 
 /// Extract a ParsedField from a syn::Field.
@@ -665,5 +675,25 @@ mod tests {
         let entity = parse_entity_source(source).unwrap();
         let status = &entity.fields[1];
         assert_eq!(status.column_default, Some("'idle'::task_status".to_string()));
+    }
+
+    #[test]
+    fn test_parse_column_default_with_json_quotes() {
+        let source = r#"
+            #[derive(Debug, Clone, sqlx::FromRow)]
+            #[sqlx_gen(kind = "table", table = "configs")]
+            pub struct Configs {
+                #[sqlx_gen(primary_key)]
+                pub id: i32,
+                #[sqlx_gen(column_default = "'{\"1\": \"\", \"2\": \"\"}'::jsonb")]
+                pub template_variables: String,
+            }
+        "#;
+        let entity = parse_entity_source(source).unwrap();
+        let field = &entity.fields[1];
+        assert_eq!(
+            field.column_default,
+            Some(r#"'{"1": "", "2": ""}'::jsonb"#.to_string())
+        );
     }
 }

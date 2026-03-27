@@ -35,7 +35,10 @@ pub fn generate_crud_from_parsed(
     let use_macro = query_macro && !has_custom_sql_type && !entity.is_view;
 
     // Entity import
-    imports.insert(format!("use {}::{};", entity_module_path, entity.struct_name));
+    imports.insert(format!(
+        "use {}::{};",
+        entity_module_path, entity.struct_name
+    ));
 
     // Forward type imports from the entity file (chrono, uuid, etc.)
     // Rewrite `use super::X` imports to absolute paths based on entity_module_path,
@@ -56,7 +59,8 @@ pub fn generate_crud_from_parsed(
     let pk_fields: Vec<&ParsedField> = entity.fields.iter().filter(|f| f.is_primary_key).collect();
 
     // Non-PK fields (for insert)
-    let non_pk_fields: Vec<&ParsedField> = entity.fields.iter().filter(|f| !f.is_primary_key).collect();
+    let non_pk_fields: Vec<&ParsedField> =
+        entity.fields.iter().filter(|f| !f.is_primary_key).collect();
 
     let is_view = entity.is_view;
 
@@ -95,7 +99,9 @@ pub fn generate_crud_from_parsed(
         let count_sql = raw_sql_lit(&format!("SELECT COUNT(*) FROM {}", table_name));
         let sql = raw_sql_lit(&match db_kind {
             DatabaseKind::Postgres => format!("SELECT *\nFROM {}\nLIMIT $1 OFFSET $2", table_name),
-            DatabaseKind::Mysql | DatabaseKind::Sqlite => format!("SELECT *\nFROM {}\nLIMIT ? OFFSET ?", table_name),
+            DatabaseKind::Mysql | DatabaseKind::Sqlite => {
+                format!("SELECT *\nFROM {}\nLIMIT ? OFFSET ?", table_name)
+            }
         });
         let method = if use_macro {
             quote! {
@@ -191,8 +197,14 @@ pub fn generate_crud_from_parsed(
 
         let where_clause = build_where_clause_parsed(&pk_fields, db_kind, 1);
         let where_clause_cast = build_where_clause_cast(&pk_fields, db_kind, 1);
-        let sql = raw_sql_lit(&format!("SELECT *\nFROM {}\nWHERE {}", table_name, where_clause));
-        let sql_macro = raw_sql_lit(&format!("SELECT *\nFROM {}\nWHERE {}", table_name, where_clause_cast));
+        let sql = raw_sql_lit(&format!(
+            "SELECT *\nFROM {}\nWHERE {}",
+            table_name, where_clause
+        ));
+        let sql_macro = raw_sql_lit(&format!(
+            "SELECT *\nFROM {}\nWHERE {}",
+            table_name, where_clause_cast
+        ));
 
         let binds: Vec<TokenStream> = pk_fields
             .iter()
@@ -256,7 +268,10 @@ pub fn generate_crud_from_parsed(
             })
             .collect();
 
-        let col_names: Vec<&str> = insert_source_fields.iter().map(|f| f.column_name.as_str()).collect();
+        let col_names: Vec<&str> = insert_source_fields
+            .iter()
+            .map(|f| f.column_name.as_str())
+            .collect();
         let col_list = col_names.join(", ");
 
         // Build placeholders with COALESCE for fields that have a column_default
@@ -294,10 +309,7 @@ pub fn generate_crud_from_parsed(
                 )
             }
             DatabaseKind::Mysql => {
-                format!(
-                    "INSERT INTO {} ({})\nVALUES ({})",
-                    table_name, col_list, ph
-                )
+                format!("INSERT INTO {} ({})\nVALUES ({})", table_name, col_list, ph)
             }
         };
         let sql = build_insert_sql(&placeholders);
@@ -343,7 +355,10 @@ pub fn generate_crud_from_parsed(
             non_pk_fields.clone()
         };
 
-        let col_names: Vec<&str> = insert_source_fields.iter().map(|f| f.column_name.as_str()).collect();
+        let col_names: Vec<&str> = insert_source_fields
+            .iter()
+            .map(|f| f.column_name.as_str())
+            .collect();
         let col_list = col_names.join(", ");
         let num_cols = insert_source_fields.len();
 
@@ -443,7 +458,10 @@ pub fn generate_crud_from_parsed(
 
         let build_overwrite_sql = |sc: &str, wc: &str| match db_kind {
             DatabaseKind::Postgres | DatabaseKind::Sqlite => {
-                format!("UPDATE {}\nSET\n  {}\nWHERE {}\nRETURNING *", table_name, sc, wc)
+                format!(
+                    "UPDATE {}\nSET\n  {}\nWHERE {}\nRETURNING *",
+                    table_name, sc, wc
+                )
             }
             DatabaseKind::Mysql => {
                 format!("UPDATE {}\nSET\n  {}\nWHERE {}", table_name, sc, wc)
@@ -488,7 +506,10 @@ pub fn generate_crud_from_parsed(
                 }
                 DatabaseKind::Mysql => {
                     let pk_where_select = build_where_clause_parsed(&pk_fields, db_kind, 1);
-                    let select_sql = raw_sql_lit(&format!("SELECT *\nFROM {}\nWHERE {}", table_name, pk_where_select));
+                    let select_sql = raw_sql_lit(&format!(
+                        "SELECT *\nFROM {}\nWHERE {}",
+                        table_name, pk_where_select
+                    ));
                     let pk_macro_args: Vec<TokenStream> = pk_fields
                         .iter()
                         .map(|f| {
@@ -522,7 +543,10 @@ pub fn generate_crud_from_parsed(
                 }
                 DatabaseKind::Mysql => {
                     let pk_where_select = build_where_clause_parsed(&pk_fields, db_kind, 1);
-                    let select_sql = raw_sql_lit(&format!("SELECT *\nFROM {}\nWHERE {}", table_name, pk_where_select));
+                    let select_sql = raw_sql_lit(&format!(
+                        "SELECT *\nFROM {}\nWHERE {}",
+                        table_name, pk_where_select
+                    ));
                     let pk_binds: Vec<TokenStream> = pk_fields
                         .iter()
                         .map(|f| {
@@ -619,10 +643,7 @@ pub fn generate_crud_from_parsed(
                 )
             }
             DatabaseKind::Mysql => {
-                format!(
-                    "UPDATE {}\nSET\n  {}\nWHERE {}",
-                    table_name, sc, wc
-                )
+                format!("UPDATE {}\nSET\n  {}\nWHERE {}", table_name, sc, wc)
             }
         };
         let sql = raw_sql_lit(&build_update_sql(&set_clause, &where_clause));
@@ -664,7 +685,10 @@ pub fn generate_crud_from_parsed(
                 }
                 DatabaseKind::Mysql => {
                     let pk_where_select = build_where_clause_parsed(&pk_fields, db_kind, 1);
-                    let select_sql = raw_sql_lit(&format!("SELECT *\nFROM {}\nWHERE {}", table_name, pk_where_select));
+                    let select_sql = raw_sql_lit(&format!(
+                        "SELECT *\nFROM {}\nWHERE {}",
+                        table_name, pk_where_select
+                    ));
                     let pk_macro_args: Vec<TokenStream> = pk_fields
                         .iter()
                         .map(|f| {
@@ -698,7 +722,10 @@ pub fn generate_crud_from_parsed(
                 }
                 DatabaseKind::Mysql => {
                     let pk_where_select = build_where_clause_parsed(&pk_fields, db_kind, 1);
-                    let select_sql = raw_sql_lit(&format!("SELECT *\nFROM {}\nWHERE {}", table_name, pk_where_select));
+                    let select_sql = raw_sql_lit(&format!(
+                        "SELECT *\nFROM {}\nWHERE {}",
+                        table_name, pk_where_select
+                    ));
                     let pk_binds: Vec<TokenStream> = pk_fields
                         .iter()
                         .map(|f| {
@@ -744,8 +771,14 @@ pub fn generate_crud_from_parsed(
 
         let where_clause = build_where_clause_parsed(&pk_fields, db_kind, 1);
         let where_clause_cast = build_where_clause_cast(&pk_fields, db_kind, 1);
-        let sql = raw_sql_lit(&format!("DELETE FROM {}\nWHERE {}", table_name, where_clause));
-        let sql_macro = raw_sql_lit(&format!("DELETE FROM {}\nWHERE {}", table_name, where_clause_cast));
+        let sql = raw_sql_lit(&format!(
+            "DELETE FROM {}\nWHERE {}",
+            table_name, where_clause
+        ));
+        let sql_macro = raw_sql_lit(&format!(
+            "DELETE FROM {}\nWHERE {}",
+            table_name, where_clause_cast
+        ));
 
         let binds: Vec<TokenStream> = pk_fields
             .iter()
@@ -844,28 +877,6 @@ fn placeholder_with_cast(db_kind: DatabaseKind, index: usize, field: &ParsedFiel
     }
 }
 
-fn build_placeholders(count: usize, db_kind: DatabaseKind, start: usize) -> String {
-    (0..count)
-        .map(|i| placeholder(db_kind, start + i))
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-fn build_placeholders_with_cast(fields: &[&ParsedField], db_kind: DatabaseKind, start: usize, use_cast: bool) -> String {
-    fields
-        .iter()
-        .enumerate()
-        .map(|(i, f)| {
-            if use_cast {
-                placeholder_with_cast(db_kind, start + i, f)
-            } else {
-                placeholder(db_kind, start + i)
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
 fn build_where_clause_parsed(
     pk_fields: &[&ParsedField],
     db_kind: DatabaseKind,
@@ -947,7 +958,10 @@ fn build_insert_method_parsed(
             }
             DatabaseKind::Mysql => {
                 let pk_where = build_where_clause_parsed(pk_fields, db_kind, 1);
-                let select_sql = raw_sql_lit(&format!("SELECT *\nFROM {}\nWHERE {}", table_name, pk_where));
+                let select_sql = raw_sql_lit(&format!(
+                    "SELECT *\nFROM {}\nWHERE {}",
+                    table_name, pk_where
+                ));
                 let last_insert_id_sql = raw_sql_lit("SELECT LAST_INSERT_ID() as id");
                 quote! {
                     pub async fn insert(&self, params: &#insert_params_ident) -> Result<#entity_ident, sqlx::Error> {
@@ -978,7 +992,10 @@ fn build_insert_method_parsed(
             }
             DatabaseKind::Mysql => {
                 let pk_where = build_where_clause_parsed(pk_fields, db_kind, 1);
-                let select_sql = raw_sql_lit(&format!("SELECT *\nFROM {}\nWHERE {}", table_name, pk_where));
+                let select_sql = raw_sql_lit(&format!(
+                    "SELECT *\nFROM {}\nWHERE {}",
+                    table_name, pk_where
+                ));
                 let last_insert_id_sql = raw_sql_lit("SELECT LAST_INSERT_ID()");
                 quote! {
                     pub async fn insert(&self, params: &#insert_params_ident) -> Result<#entity_ident, sqlx::Error> {
@@ -1034,16 +1051,14 @@ fn build_insert_many_transactionally_method(
                                 },
                             }
                         }
-                        None => {
-                            match db_kind {
-                                DatabaseKind::Postgres => quote! {
-                                    format!("${}", base + #offset + 1)
-                                },
-                                _ => quote! {
-                                    "?".to_string()
-                                },
-                            }
-                        }
+                        None => match db_kind {
+                            DatabaseKind::Postgres => quote! {
+                                format!("${}", base + #offset + 1)
+                            },
+                            _ => quote! {
+                                "?".to_string()
+                            },
+                        },
                     }
                 })
                 .collect();
@@ -1104,7 +1119,10 @@ fn build_insert_many_transactionally_method(
                 .collect();
 
             let pk_where = build_where_clause_parsed(pk_fields, db_kind, 1);
-            let select_sql = raw_sql_lit(&format!("SELECT *\nFROM {}\nWHERE {}", table_name, pk_where));
+            let select_sql = raw_sql_lit(&format!(
+                "SELECT *\nFROM {}\nWHERE {}",
+                table_name, pk_where
+            ));
             let last_insert_id_sql = raw_sql_lit("SELECT LAST_INSERT_ID()");
 
             quote! {
@@ -1143,11 +1161,17 @@ fn build_insert_many_transactionally_method(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codegen::parse_and_format_with_tab_spaces;
-    use crate::codegen::parse_and_format;
     use crate::cli::Methods;
+    use crate::codegen::parse_and_format;
+    use crate::codegen::parse_and_format_with_tab_spaces;
 
-    fn make_field(rust_name: &str, column_name: &str, rust_type: &str, nullable: bool, is_pk: bool) -> ParsedField {
+    fn make_field(
+        rust_name: &str,
+        column_name: &str,
+        rust_type: &str,
+        nullable: bool,
+        is_pk: bool,
+    ) -> ParsedField {
         let inner_type = if nullable {
             // Strip "Option<" prefix and ">" suffix
             rust_type
@@ -1171,7 +1195,14 @@ mod tests {
         }
     }
 
-    fn make_field_with_default(rust_name: &str, column_name: &str, rust_type: &str, nullable: bool, is_pk: bool, default: &str) -> ParsedField {
+    fn make_field_with_default(
+        rust_name: &str,
+        column_name: &str,
+        rust_type: &str,
+        nullable: bool,
+        is_pk: bool,
+        default: &str,
+    ) -> ParsedField {
         let mut f = make_field(rust_name, column_name, rust_type, nullable, is_pk);
         f.column_default = Some(default.to_string());
         f
@@ -1186,11 +1217,32 @@ mod tests {
             fields: vec![
                 make_field("id", "id", "i32", false, true),
                 make_field("title", "title", "String", false, false),
-                make_field_with_default("status", "status", "String", false, false, "'idle'::task_status"),
+                make_field_with_default(
+                    "status",
+                    "status",
+                    "String",
+                    false,
+                    false,
+                    "'idle'::task_status",
+                ),
                 make_field_with_default("priority", "priority", "i32", false, false, "0"),
-                make_field_with_default("created_at", "created_at", "DateTime<Utc>", false, false, "now()"),
+                make_field_with_default(
+                    "created_at",
+                    "created_at",
+                    "DateTime<Utc>",
+                    false,
+                    false,
+                    "now()",
+                ),
                 make_field("description", "description", "Option<String>", true, false),
-                make_field_with_default("deleted_at", "deleted_at", "Option<DateTime<Utc>>", true, false, "NULL"),
+                make_field_with_default(
+                    "deleted_at",
+                    "deleted_at",
+                    "Option<DateTime<Utc>>",
+                    true,
+                    false,
+                    "NULL",
+                ),
             ],
             imports: vec![],
         }
@@ -1213,24 +1265,52 @@ mod tests {
 
     fn gen(entity: &ParsedEntity, db: DatabaseKind) -> String {
         let skip = Methods::all();
-        let (tokens, _) = generate_crud_from_parsed(entity, db, "crate::models::users", &skip, false, PoolVisibility::Private);
+        let (tokens, _) = generate_crud_from_parsed(
+            entity,
+            db,
+            "crate::models::users",
+            &skip,
+            false,
+            PoolVisibility::Private,
+        );
         parse_and_format(&tokens)
     }
 
     fn gen_macro(entity: &ParsedEntity, db: DatabaseKind) -> String {
         let skip = Methods::all();
-        let (tokens, _) = generate_crud_from_parsed(entity, db, "crate::models::users", &skip, true, PoolVisibility::Private);
+        let (tokens, _) = generate_crud_from_parsed(
+            entity,
+            db,
+            "crate::models::users",
+            &skip,
+            true,
+            PoolVisibility::Private,
+        );
         parse_and_format(&tokens)
     }
 
     fn gen_with_methods(entity: &ParsedEntity, db: DatabaseKind, methods: &Methods) -> String {
-        let (tokens, _) = generate_crud_from_parsed(entity, db, "crate::models::users", methods, false, PoolVisibility::Private);
+        let (tokens, _) = generate_crud_from_parsed(
+            entity,
+            db,
+            "crate::models::users",
+            methods,
+            false,
+            PoolVisibility::Private,
+        );
         parse_and_format(&tokens)
     }
 
     fn gen_with_tab_spaces(entity: &ParsedEntity, db: DatabaseKind, tab_spaces: usize) -> String {
         let skip = Methods::all();
-        let (tokens, _) = generate_crud_from_parsed(entity, db, "crate::models::users", &skip, false, PoolVisibility::Private);
+        let (tokens, _) = generate_crud_from_parsed(
+            entity,
+            db,
+            "crate::models::users",
+            &skip,
+            false,
+            PoolVisibility::Private,
+        );
         parse_and_format_with_tab_spaces(&tokens, tab_spaces)
     }
 
@@ -1257,17 +1337,36 @@ mod tests {
     #[test]
     fn test_repo_pool_field_pub() {
         let skip = Methods::all();
-        let (tokens, _) = generate_crud_from_parsed(&standard_entity(), DatabaseKind::Postgres, "crate::models::users", &skip, false, PoolVisibility::Pub);
+        let (tokens, _) = generate_crud_from_parsed(
+            &standard_entity(),
+            DatabaseKind::Postgres,
+            "crate::models::users",
+            &skip,
+            false,
+            PoolVisibility::Pub,
+        );
         let code = parse_and_format(&tokens);
-        assert!(code.contains("pub pool: sqlx::PgPool") || code.contains("pub pool: sqlx :: PgPool"));
+        assert!(
+            code.contains("pub pool: sqlx::PgPool") || code.contains("pub pool: sqlx :: PgPool")
+        );
     }
 
     #[test]
     fn test_repo_pool_field_pub_crate() {
         let skip = Methods::all();
-        let (tokens, _) = generate_crud_from_parsed(&standard_entity(), DatabaseKind::Postgres, "crate::models::users", &skip, false, PoolVisibility::PubCrate);
+        let (tokens, _) = generate_crud_from_parsed(
+            &standard_entity(),
+            DatabaseKind::Postgres,
+            "crate::models::users",
+            &skip,
+            false,
+            PoolVisibility::PubCrate,
+        );
         let code = parse_and_format(&tokens);
-        assert!(code.contains("pub(crate) pool: sqlx::PgPool") || code.contains("pub(crate) pool: sqlx :: PgPool"));
+        assert!(
+            code.contains("pub(crate) pool: sqlx::PgPool")
+                || code.contains("pub(crate) pool: sqlx :: PgPool")
+        );
     }
 
     #[test]
@@ -1418,7 +1517,10 @@ mod tests {
     fn test_insert_params_no_pk() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
         assert!(code.contains("pub name: String"));
-        assert!(code.contains("pub email: Option<String>") || code.contains("pub email: Option < String >"));
+        assert!(
+            code.contains("pub email: Option<String>")
+                || code.contains("pub email: Option < String >")
+        );
     }
 
     #[test]
@@ -1445,49 +1547,105 @@ mod tests {
     fn test_insert_default_col_is_optional() {
         let code = gen(&entity_with_defaults(), DatabaseKind::Postgres);
         // Fields with column_default and not nullable → Option<T>
-        let struct_start = code.find("pub struct InsertTasksParams").expect("InsertTasksParams not found");
+        let struct_start = code
+            .find("pub struct InsertTasksParams")
+            .expect("InsertTasksParams not found");
         let struct_end = code[struct_start..].find('}').unwrap() + struct_start;
         let struct_body = &code[struct_start..struct_end];
-        assert!(struct_body.contains("Option") && struct_body.contains("status"), "Expected status as Option in InsertTasksParams: {}", struct_body);
+        assert!(
+            struct_body.contains("Option") && struct_body.contains("status"),
+            "Expected status as Option in InsertTasksParams: {}",
+            struct_body
+        );
     }
 
     #[test]
     fn test_insert_non_default_col_required() {
         let code = gen(&entity_with_defaults(), DatabaseKind::Postgres);
         // 'title' has no default → required type (String)
-        let struct_start = code.find("pub struct InsertTasksParams").expect("InsertTasksParams not found");
+        let struct_start = code
+            .find("pub struct InsertTasksParams")
+            .expect("InsertTasksParams not found");
         let struct_end = code[struct_start..].find('}').unwrap() + struct_start;
         let struct_body = &code[struct_start..struct_end];
-        assert!(struct_body.contains("title") && struct_body.contains("String"), "Expected title as String: {}", struct_body);
+        assert!(
+            struct_body.contains("title") && struct_body.contains("String"),
+            "Expected title as String: {}",
+            struct_body
+        );
     }
 
     #[test]
     fn test_insert_default_col_coalesce_sql() {
         let code = gen(&entity_with_defaults(), DatabaseKind::Postgres);
-        assert!(code.contains("COALESCE($2, 'idle'::task_status)"), "Expected COALESCE for status:\n{}", code);
-        assert!(code.contains("COALESCE($3, 0)"), "Expected COALESCE for priority:\n{}", code);
-        assert!(code.contains("COALESCE($4, now())"), "Expected COALESCE for created_at:\n{}", code);
+        assert!(
+            code.contains("COALESCE($2, 'idle'::task_status)"),
+            "Expected COALESCE for status:\n{}",
+            code
+        );
+        assert!(
+            code.contains("COALESCE($3, 0)"),
+            "Expected COALESCE for priority:\n{}",
+            code
+        );
+        assert!(
+            code.contains("COALESCE($4, now())"),
+            "Expected COALESCE for created_at:\n{}",
+            code
+        );
+    }
+
+    #[test]
+    fn test_insert_default_col_coalesce_json() {
+        let mut entity = entity_with_defaults();
+        entity.fields.push(make_field_with_default(
+            "metadata",
+            "metadata",
+            "serde_json::Value",
+            false,
+            false,
+            r#"'{"key": "value"}'::jsonb"#,
+        ));
+        let code = gen(&entity, DatabaseKind::Postgres);
+        assert!(
+            code.contains(r#"COALESCE($7, '{"key": "value"}'::jsonb)"#),
+            "Expected COALESCE with JSON default:\n{}",
+            code
+        );
     }
 
     #[test]
     fn test_insert_no_coalesce_for_non_default() {
         let code = gen(&entity_with_defaults(), DatabaseKind::Postgres);
         // title has no default, so its placeholder should be plain $1 not COALESCE
-        assert!(code.contains("VALUES ($1, COALESCE"), "Expected $1 without COALESCE for title:\n{}", code);
+        assert!(
+            code.contains("VALUES ($1, COALESCE"),
+            "Expected $1 without COALESCE for title:\n{}",
+            code
+        );
     }
 
     #[test]
     fn test_insert_nullable_with_default_no_double_option() {
         let code = gen(&entity_with_defaults(), DatabaseKind::Postgres);
-        assert!(!code.contains("Option < Option") && !code.contains("Option<Option"), "Should not have Option<Option>:\n{}", code);
+        assert!(
+            !code.contains("Option < Option") && !code.contains("Option<Option"),
+            "Should not have Option<Option>:\n{}",
+            code
+        );
     }
 
     #[test]
     fn test_insert_derive_default() {
         let code = gen(&entity_with_defaults(), DatabaseKind::Postgres);
-        let struct_start = code.find("pub struct InsertTasksParams").expect("InsertTasksParams not found");
+        let struct_start = code
+            .find("pub struct InsertTasksParams")
+            .expect("InsertTasksParams not found");
         let before_struct = &code[..struct_start];
-        assert!(before_struct.ends_with("Default)]\n") || before_struct.contains("Default)]"), "Expected #[derive(Default)] on InsertTasksParams");
+        assert!(
+            before_struct.ends_with("Default)]\n") || before_struct.contains("Default)]"),
+            "Expected #[derive(Default)] on InsertTasksParams"
+        );
     }
 
     // --- update (patch with COALESCE) ---
@@ -1509,9 +1667,15 @@ mod tests {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
         // PK 'id: i32' should appear between "fn update" and "UpdateUsersParams"
         let update_pos = code.find("fn update").expect("fn update not found");
-        let params_pos = code[update_pos..].find("UpdateUsersParams").expect("UpdateUsersParams not found in update fn");
+        let params_pos = code[update_pos..]
+            .find("UpdateUsersParams")
+            .expect("UpdateUsersParams not found in update fn");
         let signature = &code[update_pos..update_pos + params_pos];
-        assert!(signature.contains("id"), "Expected 'id' PK in update fn signature: {}", signature);
+        assert!(
+            signature.contains("id"),
+            "Expected 'id' PK in update fn signature: {}",
+            signature
+        );
     }
 
     #[test]
@@ -1519,17 +1683,26 @@ mod tests {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
         // UpdateUsersParams should NOT contain id field
         // Extract the struct definition and check it doesn't have id
-        let struct_start = code.find("pub struct UpdateUsersParams").expect("UpdateUsersParams not found");
+        let struct_start = code
+            .find("pub struct UpdateUsersParams")
+            .expect("UpdateUsersParams not found");
         let struct_end = code[struct_start..].find('}').unwrap() + struct_start;
         let struct_body = &code[struct_start..struct_end];
-        assert!(!struct_body.contains("pub id"), "PK 'id' should not be in UpdateUsersParams:\n{}", struct_body);
+        assert!(
+            !struct_body.contains("pub id"),
+            "PK 'id' should not be in UpdateUsersParams:\n{}",
+            struct_body
+        );
     }
 
     #[test]
     fn test_update_params_non_nullable_wrapped_in_option() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
         // `name: String` becomes `name: Option<String>` in patch params
-        assert!(code.contains("pub name: Option<String>") || code.contains("pub name : Option < String >"));
+        assert!(
+            code.contains("pub name: Option<String>")
+                || code.contains("pub name : Option < String >")
+        );
     }
 
     #[test]
@@ -1542,8 +1715,16 @@ mod tests {
     #[test]
     fn test_update_set_clause_uses_coalesce_pg() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("COALESCE($1, name)"), "Expected COALESCE for name:\n{}", code);
-        assert!(code.contains("COALESCE($2, email)"), "Expected COALESCE for email:\n{}", code);
+        assert!(
+            code.contains("COALESCE($1, name)"),
+            "Expected COALESCE for name:\n{}",
+            code
+        );
+        assert!(
+            code.contains("COALESCE($2, email)"),
+            "Expected COALESCE for email:\n{}",
+            code
+        );
     }
 
     #[test]
@@ -1562,14 +1743,26 @@ mod tests {
     #[test]
     fn test_update_set_clause_mysql() {
         let code = gen(&standard_entity(), DatabaseKind::Mysql);
-        assert!(code.contains("COALESCE(?, name)"), "Expected COALESCE for MySQL:\n{}", code);
-        assert!(code.contains("COALESCE(?, email)"), "Expected COALESCE for email in MySQL:\n{}", code);
+        assert!(
+            code.contains("COALESCE(?, name)"),
+            "Expected COALESCE for MySQL:\n{}",
+            code
+        );
+        assert!(
+            code.contains("COALESCE(?, email)"),
+            "Expected COALESCE for email in MySQL:\n{}",
+            code
+        );
     }
 
     #[test]
     fn test_update_set_clause_sqlite() {
         let code = gen(&standard_entity(), DatabaseKind::Sqlite);
-        assert!(code.contains("COALESCE(?, name)"), "Expected COALESCE for SQLite:\n{}", code);
+        assert!(
+            code.contains("COALESCE(?, name)"),
+            "Expected COALESCE for SQLite:\n{}",
+            code
+        );
     }
 
     // --- overwrite (full replacement, PK as fn param) ---
@@ -1590,18 +1783,30 @@ mod tests {
     fn test_overwrite_pk_in_fn_signature() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
         let pos = code.find("fn overwrite").expect("fn overwrite not found");
-        let params_pos = code[pos..].find("OverwriteUsersParams").expect("OverwriteUsersParams not found");
+        let params_pos = code[pos..]
+            .find("OverwriteUsersParams")
+            .expect("OverwriteUsersParams not found");
         let signature = &code[pos..pos + params_pos];
-        assert!(signature.contains("id"), "Expected PK in overwrite fn signature: {}", signature);
+        assert!(
+            signature.contains("id"),
+            "Expected PK in overwrite fn signature: {}",
+            signature
+        );
     }
 
     #[test]
     fn test_overwrite_pk_not_in_struct() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        let struct_start = code.find("pub struct OverwriteUsersParams").expect("OverwriteUsersParams not found");
+        let struct_start = code
+            .find("pub struct OverwriteUsersParams")
+            .expect("OverwriteUsersParams not found");
         let struct_end = code[struct_start..].find('}').unwrap() + struct_start;
         let struct_body = &code[struct_start..struct_end];
-        assert!(!struct_body.contains("pub id"), "PK should not be in OverwriteUsersParams: {}", struct_body);
+        assert!(
+            !struct_body.contains("pub id"),
+            "PK should not be in OverwriteUsersParams: {}",
+            struct_body
+        );
     }
 
     #[test]
@@ -1610,7 +1815,11 @@ mod tests {
         // Find the overwrite SQL — should have direct SET, no COALESCE
         let pos = code.find("fn overwrite").expect("fn overwrite not found");
         let method_body = &code[pos..pos + 500.min(code.len() - pos)];
-        assert!(!method_body.contains("COALESCE"), "Overwrite should not use COALESCE: {}", method_body);
+        assert!(
+            !method_body.contains("COALESCE"),
+            "Overwrite should not use COALESCE: {}",
+            method_body
+        );
     }
 
     #[test]
@@ -1626,7 +1835,10 @@ mod tests {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
         let pos = code.find("fn overwrite").expect("fn overwrite not found");
         let method_body = &code[pos..pos + 500.min(code.len() - pos)];
-        assert!(method_body.contains("RETURNING *"), "Expected RETURNING * in overwrite");
+        assert!(
+            method_body.contains("RETURNING *"),
+            "Expected RETURNING * in overwrite"
+        );
     }
 
     #[test]
@@ -1639,7 +1851,10 @@ mod tests {
 
     #[test]
     fn test_without_overwrite() {
-        let m = Methods { overwrite: false, ..Methods::all() };
+        let m = Methods {
+            overwrite: false,
+            ..Methods::all()
+        };
         let code = gen_with_methods(&standard_entity(), DatabaseKind::Postgres, &m);
         assert!(!code.contains("pub async fn overwrite"));
         assert!(!code.contains("OverwriteUsersParams"));
@@ -1648,10 +1863,22 @@ mod tests {
     #[test]
     fn test_update_and_overwrite_coexist() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("pub async fn update"), "Expected update method");
-        assert!(code.contains("pub async fn overwrite"), "Expected overwrite method");
-        assert!(code.contains("UpdateUsersParams"), "Expected UpdateUsersParams");
-        assert!(code.contains("OverwriteUsersParams"), "Expected OverwriteUsersParams");
+        assert!(
+            code.contains("pub async fn update"),
+            "Expected update method"
+        );
+        assert!(
+            code.contains("pub async fn overwrite"),
+            "Expected overwrite method"
+        );
+        assert!(
+            code.contains("UpdateUsersParams"),
+            "Expected UpdateUsersParams"
+        );
+        assert!(
+            code.contains("OverwriteUsersParams"),
+            "Expected OverwriteUsersParams"
+        );
     }
 
     // --- delete ---
@@ -1673,22 +1900,40 @@ mod tests {
     fn test_tab_spaces_2_sql_indent() {
         let code = gen_with_tab_spaces(&standard_entity(), DatabaseKind::Postgres, 2);
         // SQL content at 8 spaces (4 + 2×2), "# at 6 spaces (4 + 2)
-        assert!(code.contains("        SELECT *"), "Expected SQL at 8-space indent:\n{}", code);
-        assert!(code.contains("      \"#"), "Expected closing tag at 6-space indent:\n{}", code);
+        assert!(
+            code.contains("        SELECT *"),
+            "Expected SQL at 8-space indent:\n{}",
+            code
+        );
+        assert!(
+            code.contains("      \"#"),
+            "Expected closing tag at 6-space indent:\n{}",
+            code
+        );
     }
 
     #[test]
     fn test_tab_spaces_4_sql_indent() {
         let code = gen_with_tab_spaces(&standard_entity(), DatabaseKind::Postgres, 4);
         // SQL content at 12 spaces (4 + 2×4), "# at 8 spaces (4 + 4)
-        assert!(code.contains("            SELECT *"), "Expected SQL at 12-space indent:\n{}", code);
-        assert!(code.contains("        \"#"), "Expected closing tag at 8-space indent:\n{}", code);
+        assert!(
+            code.contains("            SELECT *"),
+            "Expected SQL at 12-space indent:\n{}",
+            code
+        );
+        assert!(
+            code.contains("        \"#"),
+            "Expected closing tag at 8-space indent:\n{}",
+            code
+        );
     }
 
     #[test]
     fn test_delete_returns_unit() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("Result<(), sqlx::Error>") || code.contains("Result<(), sqlx :: Error>"));
+        assert!(
+            code.contains("Result<(), sqlx::Error>") || code.contains("Result<(), sqlx :: Error>")
+        );
     }
 
     // --- views (read-only) ---
@@ -1745,7 +1990,10 @@ mod tests {
 
     #[test]
     fn test_only_get_all() {
-        let m = Methods { get_all: true, ..Default::default() };
+        let m = Methods {
+            get_all: true,
+            ..Default::default()
+        };
         let code = gen_with_methods(&standard_entity(), DatabaseKind::Postgres, &m);
         assert!(code.contains("pub async fn get_all"));
         assert!(!code.contains("pub async fn paginate"));
@@ -1754,14 +2002,20 @@ mod tests {
 
     #[test]
     fn test_without_get_all() {
-        let m = Methods { get_all: false, ..Methods::all() };
+        let m = Methods {
+            get_all: false,
+            ..Methods::all()
+        };
         let code = gen_with_methods(&standard_entity(), DatabaseKind::Postgres, &m);
         assert!(!code.contains("pub async fn get_all"));
     }
 
     #[test]
     fn test_without_paginate() {
-        let m = Methods { paginate: false, ..Methods::all() };
+        let m = Methods {
+            paginate: false,
+            ..Methods::all()
+        };
         let code = gen_with_methods(&standard_entity(), DatabaseKind::Postgres, &m);
         assert!(!code.contains("pub async fn paginate"));
         assert!(!code.contains("PaginateUsersParams"));
@@ -1769,7 +2023,10 @@ mod tests {
 
     #[test]
     fn test_without_get() {
-        let m = Methods { get: false, ..Methods::all() };
+        let m = Methods {
+            get: false,
+            ..Methods::all()
+        };
         let code = gen_with_methods(&standard_entity(), DatabaseKind::Postgres, &m);
         assert!(code.contains("pub async fn get_all"));
         let without_get_all = code.replace("get_all", "XXX");
@@ -1778,7 +2035,11 @@ mod tests {
 
     #[test]
     fn test_without_insert() {
-        let m = Methods { insert: false, insert_many: false, ..Methods::all() };
+        let m = Methods {
+            insert: false,
+            insert_many: false,
+            ..Methods::all()
+        };
         let code = gen_with_methods(&standard_entity(), DatabaseKind::Postgres, &m);
         assert!(!code.contains("pub async fn insert"));
         assert!(!code.contains("InsertUsersParams"));
@@ -1786,7 +2047,10 @@ mod tests {
 
     #[test]
     fn test_without_update() {
-        let m = Methods { update: false, ..Methods::all() };
+        let m = Methods {
+            update: false,
+            ..Methods::all()
+        };
         let code = gen_with_methods(&standard_entity(), DatabaseKind::Postgres, &m);
         assert!(!code.contains("pub async fn update"));
         assert!(!code.contains("UpdateUsersParams"));
@@ -1794,7 +2058,10 @@ mod tests {
 
     #[test]
     fn test_without_delete() {
-        let m = Methods { delete: false, ..Methods::all() };
+        let m = Methods {
+            delete: false,
+            ..Methods::all()
+        };
         let code = gen_with_methods(&standard_entity(), DatabaseKind::Postgres, &m);
         assert!(!code.contains("pub async fn delete"));
     }
@@ -1817,15 +2084,31 @@ mod tests {
     #[test]
     fn test_no_pool_import() {
         let skip = Methods::all();
-        let (_, imports) = generate_crud_from_parsed(&standard_entity(), DatabaseKind::Postgres, "crate::models::users", &skip, false, PoolVisibility::Private);
+        let (_, imports) = generate_crud_from_parsed(
+            &standard_entity(),
+            DatabaseKind::Postgres,
+            "crate::models::users",
+            &skip,
+            false,
+            PoolVisibility::Private,
+        );
         assert!(!imports.iter().any(|i| i.contains("PgPool")));
     }
 
     #[test]
     fn test_imports_contain_entity() {
         let skip = Methods::all();
-        let (_, imports) = generate_crud_from_parsed(&standard_entity(), DatabaseKind::Postgres, "crate::models::users", &skip, false, PoolVisibility::Private);
-        assert!(imports.iter().any(|i| i.contains("crate::models::users::Users")));
+        let (_, imports) = generate_crud_from_parsed(
+            &standard_entity(),
+            DatabaseKind::Postgres,
+            "crate::models::users",
+            &skip,
+            false,
+            PoolVisibility::Private,
+        );
+        assert!(imports
+            .iter()
+            .any(|i| i.contains("crate::models::users::Users")));
     }
 
     // --- renamed columns ---
@@ -1878,9 +2161,7 @@ mod tests {
             table_name: "logs".to_string(),
             schema_name: None,
             is_view: false,
-            fields: vec![
-                make_field("message", "message", "String", false, false),
-            ],
+            fields: vec![make_field("message", "message", "String", false, false)],
             imports: vec![],
         };
         let code = gen(&entity, DatabaseKind::Postgres);
@@ -1914,7 +2195,14 @@ mod tests {
             ],
         };
         let skip = Methods::all();
-        let (_, imports) = generate_crud_from_parsed(&entity, DatabaseKind::Postgres, "crate::models::users", &skip, false, PoolVisibility::Private);
+        let (_, imports) = generate_crud_from_parsed(
+            &entity,
+            DatabaseKind::Postgres,
+            "crate::models::users",
+            &skip,
+            false,
+            PoolVisibility::Private,
+        );
         assert!(imports.iter().any(|i| i.contains("chrono")));
         assert!(imports.iter().any(|i| i.contains("uuid")));
     }
@@ -1922,7 +2210,14 @@ mod tests {
     #[test]
     fn test_entity_imports_empty_when_no_imports() {
         let skip = Methods::all();
-        let (_, imports) = generate_crud_from_parsed(&standard_entity(), DatabaseKind::Postgres, "crate::models::users", &skip, false, PoolVisibility::Private);
+        let (_, imports) = generate_crud_from_parsed(
+            &standard_entity(),
+            DatabaseKind::Postgres,
+            "crate::models::users",
+            &skip,
+            false,
+            PoolVisibility::Private,
+        );
         // Should only have pool + entity imports, no chrono/uuid
         assert!(!imports.iter().any(|i| i.contains("chrono")));
         assert!(!imports.iter().any(|i| i.contains("uuid")));
@@ -1932,8 +2227,18 @@ mod tests {
 
     #[test]
     fn test_macro_get_all() {
-        let m = Methods { get_all: true, ..Default::default() };
-        let (tokens, _) = generate_crud_from_parsed(&standard_entity(), DatabaseKind::Postgres, "crate::models::users", &m, true, PoolVisibility::Private);
+        let m = Methods {
+            get_all: true,
+            ..Default::default()
+        };
+        let (tokens, _) = generate_crud_from_parsed(
+            &standard_entity(),
+            DatabaseKind::Postgres,
+            "crate::models::users",
+            &m,
+            true,
+            PoolVisibility::Private,
+        );
         let code = parse_and_format(&tokens);
         assert!(code.contains("query_as!"));
         assert!(!code.contains("query_as::<"));
@@ -1973,7 +2278,11 @@ mod tests {
     fn test_macro_update() {
         let code = gen_macro(&standard_entity(), DatabaseKind::Postgres);
         assert!(code.contains("query_as!(Users"));
-        assert!(code.contains("COALESCE"), "Expected COALESCE in macro update:\n{}", code);
+        assert!(
+            code.contains("COALESCE"),
+            "Expected COALESCE in macro update:\n{}",
+            code
+        );
         assert!(code.contains("pub async fn update"));
         assert!(code.contains("UpdateUsersParams"));
     }
@@ -1988,8 +2297,18 @@ mod tests {
     #[test]
     fn test_macro_no_bind_calls() {
         // insert_many always uses runtime mode, so exclude it for this test
-        let m = Methods { insert_many: false, ..Methods::all() };
-        let (tokens, _) = generate_crud_from_parsed(&standard_entity(), DatabaseKind::Postgres, "crate::models::users", &m, true, PoolVisibility::Private);
+        let m = Methods {
+            insert_many: false,
+            ..Methods::all()
+        };
+        let (tokens, _) = generate_crud_from_parsed(
+            &standard_entity(),
+            DatabaseKind::Postgres,
+            "crate::models::users",
+            &m,
+            true,
+            PoolVisibility::Private,
+        );
         let code = parse_and_format(&tokens);
         assert!(!code.contains(".bind("));
     }
@@ -2051,7 +2370,14 @@ mod tests {
 
     fn gen_macro_array(entity: &ParsedEntity, db: DatabaseKind) -> String {
         let skip = Methods::all();
-        let (tokens, _) = generate_crud_from_parsed(entity, db, "crate::models::agent_connector", &skip, true, PoolVisibility::Private);
+        let (tokens, _) = generate_crud_from_parsed(
+            entity,
+            db,
+            "crate::models::agent_connector",
+            &skip,
+            true,
+            PoolVisibility::Private,
+        );
         parse_and_format(&tokens)
     }
 
@@ -2073,9 +2399,11 @@ mod tests {
     fn test_sql_array_macro_insert_uses_runtime() {
         let code = gen_macro_array(&entity_with_sql_array(), DatabaseKind::Postgres);
         // insert RETURNING should use runtime query_as
-        assert!(code.contains("query_as::<_ , AgentConnector>") || code.contains("query_as::<_, AgentConnector>"));
+        assert!(
+            code.contains("query_as::<_ , AgentConnector>")
+                || code.contains("query_as::<_, AgentConnector>")
+        );
     }
-
 
     #[test]
     fn test_sql_array_macro_delete_still_uses_macro() {
@@ -2130,7 +2458,14 @@ mod tests {
     #[test]
     fn test_sql_enum_macro_uses_runtime() {
         let skip = Methods::all();
-        let (tokens, _) = generate_crud_from_parsed(&entity_with_sql_enum(), DatabaseKind::Postgres, "crate::models::task", &skip, true, PoolVisibility::Private);
+        let (tokens, _) = generate_crud_from_parsed(
+            &entity_with_sql_enum(),
+            DatabaseKind::Postgres,
+            "crate::models::task",
+            &skip,
+            true,
+            PoolVisibility::Private,
+        );
         let code = parse_and_format(&tokens);
         // SELECT queries should use runtime query_as, not macro
         assert!(code.contains("query_as::<"));
@@ -2140,7 +2475,14 @@ mod tests {
     #[test]
     fn test_sql_enum_macro_delete_still_uses_macro() {
         let skip = Methods::all();
-        let (tokens, _) = generate_crud_from_parsed(&entity_with_sql_enum(), DatabaseKind::Postgres, "crate::models::task", &skip, true, PoolVisibility::Private);
+        let (tokens, _) = generate_crud_from_parsed(
+            &entity_with_sql_enum(),
+            DatabaseKind::Postgres,
+            "crate::models::task",
+            &skip,
+            true,
+            PoolVisibility::Private,
+        );
         let code = parse_and_format(&tokens);
         // DELETE still uses query! macro
         assert!(code.contains("query!"));
@@ -2196,7 +2538,14 @@ mod tests {
     #[test]
     fn test_vec_string_macro_insert_uses_as_slice() {
         let skip = Methods::all();
-        let (tokens, _) = generate_crud_from_parsed(&entity_with_vec_string(), DatabaseKind::Postgres, "crate::models::prompt_history", &skip, true, PoolVisibility::Private);
+        let (tokens, _) = generate_crud_from_parsed(
+            &entity_with_vec_string(),
+            DatabaseKind::Postgres,
+            "crate::models::prompt_history",
+            &skip,
+            true,
+            PoolVisibility::Private,
+        );
         let code = parse_and_format(&tokens);
         assert!(code.contains("as_slice()"));
     }
@@ -2204,17 +2553,35 @@ mod tests {
     #[test]
     fn test_vec_string_macro_update_uses_as_slice() {
         let skip = Methods::all();
-        let (tokens, _) = generate_crud_from_parsed(&entity_with_vec_string(), DatabaseKind::Postgres, "crate::models::prompt_history", &skip, true, PoolVisibility::Private);
+        let (tokens, _) = generate_crud_from_parsed(
+            &entity_with_vec_string(),
+            DatabaseKind::Postgres,
+            "crate::models::prompt_history",
+            &skip,
+            true,
+            PoolVisibility::Private,
+        );
         let code = parse_and_format(&tokens);
         // Should have as_slice() for insert and update
         let count = code.matches("as_slice()").count();
-        assert!(count >= 2, "expected at least 2 as_slice() calls (insert + update), found {}", count);
+        assert!(
+            count >= 2,
+            "expected at least 2 as_slice() calls (insert + update), found {}",
+            count
+        );
     }
 
     #[test]
     fn test_vec_string_non_macro_no_as_slice() {
         let skip = Methods::all();
-        let (tokens, _) = generate_crud_from_parsed(&entity_with_vec_string(), DatabaseKind::Postgres, "crate::models::prompt_history", &skip, false, PoolVisibility::Private);
+        let (tokens, _) = generate_crud_from_parsed(
+            &entity_with_vec_string(),
+            DatabaseKind::Postgres,
+            "crate::models::prompt_history",
+            &skip,
+            false,
+            PoolVisibility::Private,
+        );
         let code = parse_and_format(&tokens);
         // Runtime mode uses .bind() so no as_slice needed
         assert!(!code.contains("as_slice()"));
@@ -2237,9 +2604,20 @@ mod tests {
         "#;
         let entity = parse_entity_source(source).unwrap();
         let skip = Methods::all();
-        let (tokens, _) = generate_crud_from_parsed(&entity, DatabaseKind::Postgres, "crate::models::prompt_history", &skip, true, PoolVisibility::Private);
+        let (tokens, _) = generate_crud_from_parsed(
+            &entity,
+            DatabaseKind::Postgres,
+            "crate::models::prompt_history",
+            &skip,
+            true,
+            PoolVisibility::Private,
+        );
         let code = parse_and_format(&tokens);
-        assert!(code.contains("as_slice()"), "Expected as_slice() in generated code:\n{}", code);
+        assert!(
+            code.contains("as_slice()"),
+            "Expected as_slice() in generated code:\n{}",
+            code
+        );
     }
 
     // --- composite PK only (junction table) ---
@@ -2261,36 +2639,91 @@ mod tests {
     #[test]
     fn test_composite_pk_only_insert_generated() {
         let code = gen(&junction_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("pub struct InsertAnalysisRecordParams"), "Expected InsertAnalysisRecordParams struct:\n{}", code);
-        assert!(code.contains("pub record_id"), "Expected record_id field in insert params:\n{}", code);
-        assert!(code.contains("pub analysis_id"), "Expected analysis_id field in insert params:\n{}", code);
-        assert!(code.contains("INSERT INTO analysis.analysis__record (record_id, analysis_id)"), "Expected INSERT INTO clause:\n{}", code);
-        assert!(code.contains("VALUES ($1, $2)"), "Expected VALUES clause:\n{}", code);
-        assert!(code.contains("RETURNING *"), "Expected RETURNING clause:\n{}", code);
-        assert!(code.contains("pub async fn insert"), "Expected insert method:\n{}", code);
+        assert!(
+            code.contains("pub struct InsertAnalysisRecordParams"),
+            "Expected InsertAnalysisRecordParams struct:\n{}",
+            code
+        );
+        assert!(
+            code.contains("pub record_id"),
+            "Expected record_id field in insert params:\n{}",
+            code
+        );
+        assert!(
+            code.contains("pub analysis_id"),
+            "Expected analysis_id field in insert params:\n{}",
+            code
+        );
+        assert!(
+            code.contains("INSERT INTO analysis.analysis__record (record_id, analysis_id)"),
+            "Expected INSERT INTO clause:\n{}",
+            code
+        );
+        assert!(
+            code.contains("VALUES ($1, $2)"),
+            "Expected VALUES clause:\n{}",
+            code
+        );
+        assert!(
+            code.contains("RETURNING *"),
+            "Expected RETURNING clause:\n{}",
+            code
+        );
+        assert!(
+            code.contains("pub async fn insert"),
+            "Expected insert method:\n{}",
+            code
+        );
     }
 
     #[test]
     fn test_composite_pk_only_no_update() {
         let code = gen(&junction_entity(), DatabaseKind::Postgres);
-        assert!(!code.contains("UpdateAnalysisRecordParams"), "Expected no UpdateAnalysisRecordParams struct:\n{}", code);
-        assert!(!code.contains("pub async fn update"), "Expected no update method:\n{}", code);
+        assert!(
+            !code.contains("UpdateAnalysisRecordParams"),
+            "Expected no UpdateAnalysisRecordParams struct:\n{}",
+            code
+        );
+        assert!(
+            !code.contains("pub async fn update"),
+            "Expected no update method:\n{}",
+            code
+        );
     }
-
 
     #[test]
     fn test_composite_pk_only_delete_generated() {
         let code = gen(&junction_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("pub async fn delete"), "Expected delete method:\n{}", code);
-        assert!(code.contains("DELETE FROM analysis.analysis__record"), "Expected DELETE clause:\n{}", code);
-        assert!(code.contains("WHERE record_id = $1 AND analysis_id = $2"), "Expected WHERE clause:\n{}", code);
+        assert!(
+            code.contains("pub async fn delete"),
+            "Expected delete method:\n{}",
+            code
+        );
+        assert!(
+            code.contains("DELETE FROM analysis.analysis__record"),
+            "Expected DELETE clause:\n{}",
+            code
+        );
+        assert!(
+            code.contains("WHERE record_id = $1 AND analysis_id = $2"),
+            "Expected WHERE clause:\n{}",
+            code
+        );
     }
 
     #[test]
     fn test_composite_pk_only_get_generated() {
         let code = gen(&junction_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("pub async fn get"), "Expected get method:\n{}", code);
-        assert!(code.contains("WHERE record_id = $1 AND analysis_id = $2"), "Expected WHERE clause with both PK columns:\n{}", code);
+        assert!(
+            code.contains("pub async fn get"),
+            "Expected get method:\n{}",
+            code
+        );
+        assert!(
+            code.contains("WHERE record_id = $1 AND analysis_id = $2"),
+            "Expected WHERE clause with both PK columns:\n{}",
+            code
+        );
     }
 
     // --- insert_many_transactionally ---
@@ -2298,58 +2731,122 @@ mod tests {
     #[test]
     fn test_insert_many_transactionally_method_generated() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("pub async fn insert_many_transactionally"), "Expected insert_many_transactionally method:\n{}", code);
+        assert!(
+            code.contains("pub async fn insert_many_transactionally"),
+            "Expected insert_many_transactionally method:\n{}",
+            code
+        );
     }
 
     #[test]
     fn test_insert_many_transactionally_signature() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("entries: Vec<InsertUsersParams>"), "Expected Vec<InsertUsersParams> param:\n{}", code);
-        assert!(code.contains("Result<Vec<Users>"), "Expected Result<Vec<Users>> return type:\n{}", code);
+        assert!(
+            code.contains("entries: Vec<InsertUsersParams>"),
+            "Expected Vec<InsertUsersParams> param:\n{}",
+            code
+        );
+        assert!(
+            code.contains("Result<Vec<Users>"),
+            "Expected Result<Vec<Users>> return type:\n{}",
+            code
+        );
     }
 
     #[test]
     fn test_insert_many_transactionally_no_strategy_enum() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(!code.contains("TransactionStrategy"), "TransactionStrategy should not be generated:\n{}", code);
-        assert!(!code.contains("InsertManyUsersResult"), "InsertManyUsersResult should not be generated:\n{}", code);
+        assert!(
+            !code.contains("TransactionStrategy"),
+            "TransactionStrategy should not be generated:\n{}",
+            code
+        );
+        assert!(
+            !code.contains("InsertManyUsersResult"),
+            "InsertManyUsersResult should not be generated:\n{}",
+            code
+        );
     }
 
     #[test]
     fn test_insert_many_transactionally_uses_transaction_pg() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        let method_start = code.find("fn insert_many_transactionally").expect("insert_many_transactionally not found");
+        let method_start = code
+            .find("fn insert_many_transactionally")
+            .expect("insert_many_transactionally not found");
         let method_body = &code[method_start..];
-        assert!(method_body.contains("self.pool.begin()"), "Expected begin():\n{}", method_body);
-        assert!(method_body.contains("tx.commit()"), "Expected commit():\n{}", method_body);
+        assert!(
+            method_body.contains("self.pool.begin()"),
+            "Expected begin():\n{}",
+            method_body
+        );
+        assert!(
+            method_body.contains("tx.commit()"),
+            "Expected commit():\n{}",
+            method_body
+        );
     }
 
     #[test]
     fn test_insert_many_transactionally_multi_row_pg() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        let method_start = code.find("fn insert_many_transactionally").expect("not found");
+        let method_start = code
+            .find("fn insert_many_transactionally")
+            .expect("not found");
         let method_body = &code[method_start..];
-        assert!(method_body.contains("RETURNING *"), "Expected RETURNING * in multi-row SQL:\n{}", method_body);
-        assert!(method_body.contains("values_parts"), "Expected multi-row VALUES building:\n{}", method_body);
-        assert!(method_body.contains("65535"), "Expected chunk size limit:\n{}", method_body);
+        assert!(
+            method_body.contains("RETURNING *"),
+            "Expected RETURNING * in multi-row SQL:\n{}",
+            method_body
+        );
+        assert!(
+            method_body.contains("values_parts"),
+            "Expected multi-row VALUES building:\n{}",
+            method_body
+        );
+        assert!(
+            method_body.contains("65535"),
+            "Expected chunk size limit:\n{}",
+            method_body
+        );
     }
 
     #[test]
     fn test_insert_many_transactionally_multi_row_sqlite() {
         let code = gen(&standard_entity(), DatabaseKind::Sqlite);
-        let method_start = code.find("fn insert_many_transactionally").expect("not found");
+        let method_start = code
+            .find("fn insert_many_transactionally")
+            .expect("not found");
         let method_body = &code[method_start..];
-        assert!(method_body.contains("values_parts"), "Expected multi-row VALUES building for SQLite:\n{}", method_body);
-        assert!(method_body.contains("RETURNING *"), "Expected RETURNING * for SQLite:\n{}", method_body);
+        assert!(
+            method_body.contains("values_parts"),
+            "Expected multi-row VALUES building for SQLite:\n{}",
+            method_body
+        );
+        assert!(
+            method_body.contains("RETURNING *"),
+            "Expected RETURNING * for SQLite:\n{}",
+            method_body
+        );
     }
 
     #[test]
     fn test_insert_many_transactionally_mysql_individual_inserts() {
         let code = gen(&standard_entity(), DatabaseKind::Mysql);
-        let method_start = code.find("fn insert_many_transactionally").expect("not found");
+        let method_start = code
+            .find("fn insert_many_transactionally")
+            .expect("not found");
         let method_body = &code[method_start..];
-        assert!(method_body.contains("LAST_INSERT_ID"), "Expected LAST_INSERT_ID for MySQL:\n{}", method_body);
-        assert!(method_body.contains("self.pool.begin()"), "Expected begin() for MySQL:\n{}", method_body);
+        assert!(
+            method_body.contains("LAST_INSERT_ID"),
+            "Expected LAST_INSERT_ID for MySQL:\n{}",
+            method_body
+        );
+        assert!(
+            method_body.contains("self.pool.begin()"),
+            "Expected begin() for MySQL:\n{}",
+            method_body
+        );
     }
 
     #[test]
@@ -2357,44 +2854,87 @@ mod tests {
         let mut entity = standard_entity();
         entity.is_view = true;
         let code = gen(&entity, DatabaseKind::Postgres);
-        assert!(!code.contains("pub async fn insert_many_transactionally"), "should not be generated for views");
+        assert!(
+            !code.contains("pub async fn insert_many_transactionally"),
+            "should not be generated for views"
+        );
     }
 
     #[test]
     fn test_insert_many_transactionally_without_method_not_generated() {
-        let m = Methods { insert_many: false, ..Methods::all() };
+        let m = Methods {
+            insert_many: false,
+            ..Methods::all()
+        };
         let code = gen_with_methods(&standard_entity(), DatabaseKind::Postgres, &m);
-        assert!(!code.contains("pub async fn insert_many_transactionally"), "should not be generated when disabled");
+        assert!(
+            !code.contains("pub async fn insert_many_transactionally"),
+            "should not be generated when disabled"
+        );
     }
 
     #[test]
     fn test_insert_many_transactionally_generates_params_when_insert_disabled() {
-        let m = Methods { insert: false, insert_many: true, ..Default::default() };
+        let m = Methods {
+            insert: false,
+            insert_many: true,
+            ..Default::default()
+        };
         let code = gen_with_methods(&standard_entity(), DatabaseKind::Postgres, &m);
-        assert!(code.contains("pub struct InsertUsersParams"), "Expected InsertUsersParams:\n{}", code);
-        assert!(code.contains("pub async fn insert_many_transactionally"), "Expected method:\n{}", code);
-        assert!(!code.contains("pub async fn insert("), "insert should not be present:\n{}", code);
+        assert!(
+            code.contains("pub struct InsertUsersParams"),
+            "Expected InsertUsersParams:\n{}",
+            code
+        );
+        assert!(
+            code.contains("pub async fn insert_many_transactionally"),
+            "Expected method:\n{}",
+            code
+        );
+        assert!(
+            !code.contains("pub async fn insert("),
+            "insert should not be present:\n{}",
+            code
+        );
     }
 
     #[test]
     fn test_insert_many_transactionally_with_column_defaults_coalesce() {
         let code = gen(&entity_with_defaults(), DatabaseKind::Postgres);
-        let method_start = code.find("fn insert_many_transactionally").expect("not found");
+        let method_start = code
+            .find("fn insert_many_transactionally")
+            .expect("not found");
         let method_body = &code[method_start..];
-        assert!(method_body.contains("COALESCE"), "Expected COALESCE for fields with defaults:\n{}", method_body);
+        assert!(
+            method_body.contains("COALESCE"),
+            "Expected COALESCE for fields with defaults:\n{}",
+            method_body
+        );
     }
 
     #[test]
     fn test_insert_many_transactionally_junction_table() {
         let code = gen(&junction_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("pub async fn insert_many_transactionally"), "Expected method for junction table:\n{}", code);
+        assert!(
+            code.contains("pub async fn insert_many_transactionally"),
+            "Expected method for junction table:\n{}",
+            code
+        );
     }
 
     #[test]
     fn test_insert_many_transactionally_all_three_backends_compile() {
-        for db in [DatabaseKind::Postgres, DatabaseKind::Mysql, DatabaseKind::Sqlite] {
+        for db in [
+            DatabaseKind::Postgres,
+            DatabaseKind::Mysql,
+            DatabaseKind::Sqlite,
+        ] {
             let code = gen(&standard_entity(), db);
-            assert!(code.contains("pub async fn insert_many_transactionally"), "Expected method for {:?}", db);
+            assert!(
+                code.contains("pub async fn insert_many_transactionally"),
+                "Expected method for {:?}",
+                db
+            );
         }
     }
 }

@@ -1499,7 +1499,7 @@ dependencies = [
 
 [[package]]
 name = "sqlx-gen"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "clap",
  "env_logger",
@@ -1519,7 +1519,7 @@ dependencies = [
 
 [[package]]
 name = "sqlx-gen-macros"
-version = "0.5.3"
+version = "0.5.4"
 
 [[package]]
 name = "sqlx-macros"

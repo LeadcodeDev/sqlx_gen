@@ -45,7 +45,11 @@ pub fn generate_composite(
         derive_tokens.push(quote! { #ident });
     }
 
-    let pg_name = &composite.name;
+    let pg_name = if composite.schema_name != "public" {
+        format!("{}.{}", composite.schema_name, composite.name)
+    } else {
+        composite.name.clone()
+    };
     let type_attr = quote! { #[sqlx(type_name = #pg_name)] };
 
     let fields: Vec<TokenStream> = composite
@@ -190,7 +194,7 @@ mod tests {
         let schema = SchemaInfo::default();
         let (tokens, _) = generate_composite(&c, DatabaseKind::Postgres, &schema, &[], &HashMap::new(), TimeCrate::Chrono);
         let code = parse_and_format(&tokens);
-        assert!(code.contains("sqlx(type_name = \"point\")"));
+        assert!(code.contains("sqlx(type_name = \"geo.point\")"));
     }
 
     #[test]

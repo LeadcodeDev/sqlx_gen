@@ -38,9 +38,13 @@ pub fn generate_enum(
         derive_tokens.push(quote! { #ident });
     }
 
-    // For PG, add #[sqlx(type_name = "...")]
+    // For PG, add #[sqlx(type_name = "...")] — schema-qualify for non-public schemas
     let type_attr = if db_kind == DatabaseKind::Postgres {
-        let pg_name = &enum_info.name;
+        let pg_name = if enum_info.schema_name != "public" {
+            format!("{}.{}", enum_info.schema_name, enum_info.name)
+        } else {
+            enum_info.name.clone()
+        };
         quote! { #[sqlx(type_name = #pg_name)] }
     } else {
         quote! {}
@@ -188,7 +192,7 @@ mod tests {
         };
         let (tokens, _) = generate_enum(&e, DatabaseKind::Postgres, &[]);
         let code = parse_and_format(&tokens);
-        assert!(code.contains("sqlx(type_name = \"role\")"));
+        assert!(code.contains("sqlx(type_name = \"auth.role\")"));
     }
 
     #[test]
@@ -358,5 +362,90 @@ mod tests {
         let code = gen(&e, DatabaseKind::Postgres);
         assert!(code.contains("impl Default for Status"));
         assert!(code.contains("Self::InProgress"));
+    }
+
+    // --- public vs named schema integration ---
+
+    fn make_enum_in_schema(schema: &str, name: &str, variants: Vec<&str>) -> EnumInfo {
+        EnumInfo {
+            schema_name: schema.to_string(),
+            name: name.to_string(),
+            variants: variants.into_iter().map(|s| s.to_string()).collect(),
+            default_variant: None,
+        }
+    }
+
+    #[test]
+    fn test_public_schema_full_output() {
+        let e = make_enum_in_schema("public", "order_status", vec!["pending", "shipped", "delivered"]);
+        let code = gen(&e, DatabaseKind::Postgres);
+
+        assert!(code.contains("Enum: public.order_status"));
+        assert!(code.contains("pub enum OrderStatus"));
+        assert!(code.contains("sqlx(type_name = \"order_status\")"));
+        assert!(!code.contains("sqlx(type_name = \"public.order_status\")"));
+        assert!(code.contains("sqlx_gen(kind = \"enum\", schema = \"public\", name = \"order_status\")"));
+        assert!(code.contains("Pending"));
+        assert!(code.contains("Shipped"));
+        assert!(code.contains("Delivered"));
+    }
+
+    #[test]
+    fn test_named_schema_full_output() {
+        let e = make_enum_in_schema("analysis", "toolcall_status", vec!["PENDING", "RUNNING", "DONE"]);
+        let code = gen(&e, DatabaseKind::Postgres);
+
+        assert!(code.contains("Enum: analysis.toolcall_status"));
+        assert!(code.contains("pub enum ToolcallStatus"));
+        assert!(code.contains("sqlx(type_name = \"analysis.toolcall_status\")"));
+        assert!(!code.contains("sqlx(type_name = \"toolcall_status\")"));
+        assert!(code.contains("sqlx_gen(kind = \"enum\", schema = \"analysis\", name = \"toolcall_status\")"));
+        assert!(code.contains("Pending"));
+        assert!(code.contains("Running"));
+        assert!(code.contains("Done"));
+    }
+
+    #[test]
+    fn test_named_schema_with_default_variant() {
+        let e = EnumInfo {
+            schema_name: "billing".to_string(),
+            name: "payment_status".to_string(),
+            variants: vec!["pending".to_string(), "paid".to_string(), "refunded".to_string()],
+            default_variant: Some("pending".to_string()),
+        };
+        let code = gen(&e, DatabaseKind::Postgres);
+
+        assert!(code.contains("sqlx(type_name = \"billing.payment_status\")"));
+        assert!(code.contains("impl Default for PaymentStatus"));
+        assert!(code.contains("Self::Pending"));
+    }
+
+    #[test]
+    fn test_named_schema_variant_rename() {
+        let e = make_enum_in_schema("audit", "log_level", vec!["info", "warn_high", "CRITICAL"]);
+        let code = gen(&e, DatabaseKind::Postgres);
+
+        assert!(code.contains("sqlx(type_name = \"audit.log_level\")"));
+        assert!(code.contains("sqlx(rename = \"info\")"));
+        assert!(code.contains("sqlx(rename = \"warn_high\")"));
+        assert!(code.contains("WarnHigh"));
+        assert!(code.contains("sqlx(rename = \"CRITICAL\")"));
+        assert!(code.contains("Critical"));
+    }
+
+    #[test]
+    fn test_named_schema_mysql_no_type_name() {
+        let e = make_enum_in_schema("analytics", "event_type", vec!["click", "view"]);
+        let code = gen(&e, DatabaseKind::Mysql);
+
+        assert!(!code.contains("type_name"));
+    }
+
+    #[test]
+    fn test_named_schema_sqlite_no_type_name() {
+        let e = make_enum_in_schema("analytics", "event_type", vec!["click", "view"]);
+        let code = gen(&e, DatabaseKind::Sqlite);
+
+        assert!(!code.contains("type_name"));
     }
 }

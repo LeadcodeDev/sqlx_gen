@@ -59,7 +59,7 @@ async fn fetch_tables(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableI
         placeholders.join(",")
     );
 
-    let mut q = sqlx::query_as::<_, (String, String, String, String, String, String, u32, String)>(&query);
+    let mut q = sqlx::query_as::<_, (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, u32, Vec<u8>)>(&query);
     for schema in schemas {
         q = q.bind(schema);
     }
@@ -69,6 +69,14 @@ async fn fetch_tables(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableI
     let mut current_key: Option<(String, String)> = None;
 
     for (schema, table, col_name, data_type, column_type, nullable, ordinal, column_key) in rows {
+        let schema = String::from_utf8(schema).expect("Could not convert schema name from UTF8 bytes");
+        let table = String::from_utf8(table).expect("Could not convert schema name from UTF8 bytes");
+        let col_name = String::from_utf8(col_name).expect("Could not convert col_name name from UTF8 bytes");
+        let data_type = String::from_utf8(data_type).expect("Could not convert data_type name from UTF8 bytes");
+        let column_type = String::from_utf8(column_type).expect("Could not convert column_type name from UTF8 bytes");
+        let nullable = String::from_utf8(nullable).expect("Could not convert nullable name from UTF8 bytes");
+        let column_key = String::from_utf8(column_key).expect("Could not convert column_key name from UTF8 bytes");
+
         let key = (schema.clone(), table.clone());
         if current_key.as_ref() != Some(&key) {
             current_key = Some(key);

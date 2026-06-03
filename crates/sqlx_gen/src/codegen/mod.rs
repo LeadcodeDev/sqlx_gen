@@ -156,6 +156,7 @@ pub fn generate(
     // Enrich enums with default variants extracted from column defaults
     let enum_defaults = extract_enum_defaults(schema_info);
     for enum_info in &schema_info.enums {
+        enum_gen::check_variant_collisions(enum_info)?;
         let mut enriched = enum_info.clone();
         if enriched.default_variant.is_none() {
             if let Some(default) = enum_defaults.get(&enum_info.name) {

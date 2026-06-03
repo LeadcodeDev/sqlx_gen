@@ -540,7 +540,7 @@ mod tests {
                     is_primary_key: false,
                     ordinal_position: i as i32,
                     schema_name: schema.to_string(),
-                udt_schema: None,
+                    udt_schema: None,
                     column_default: None,
                 })
                 .collect(),

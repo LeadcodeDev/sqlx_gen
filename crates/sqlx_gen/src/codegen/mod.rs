@@ -91,6 +91,38 @@ pub fn rust_type_name_for(schema_info: &SchemaInfo, schema: &str, name: &str) ->
     }
 }
 
+/// Compute the schemas that must appear in PostgreSQL's `search_path` for
+/// the generated code to resolve every emitted unqualified `type_name`.
+///
+/// Returns the deduplicated, sorted list of non-default schemas hosting
+/// enums/composites/domains in `schema_info`. The caller can feed this into
+/// the pool's connect-hook, e.g.:
+///
+/// ```ignore
+/// let schemas = sqlx_gen::codegen::required_pg_search_path(&info).join(", ");
+/// sqlx::query(&format!("SET search_path TO public, {}", schemas))
+///     .execute(&pool).await?;
+/// ```
+pub fn required_pg_search_path(schema_info: &SchemaInfo) -> Vec<String> {
+    let mut schemas: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for e in &schema_info.enums {
+        if !is_default_schema(&e.schema_name) {
+            schemas.insert(e.schema_name.clone());
+        }
+    }
+    for c in &schema_info.composite_types {
+        if !is_default_schema(&c.schema_name) {
+            schemas.insert(c.schema_name.clone());
+        }
+    }
+    for d in &schema_info.domains {
+        if !is_default_schema(&d.schema_name) {
+            schemas.insert(d.schema_name.clone());
+        }
+    }
+    schemas.into_iter().collect()
+}
+
 /// True when the SQL `name` is declared by enums / composites / domains living
 /// in more than one schema.
 pub fn type_name_has_cross_schema_collision(schema_info: &SchemaInfo, name: &str) -> bool {
@@ -901,6 +933,53 @@ mod tests {
     }
 
     #[test]
+    fn required_search_path_collects_non_default_schemas() {
+        let s = SchemaInfo {
+            enums: vec![
+                crate::introspect::EnumInfo {
+                    schema_name: "auth".into(),
+                    name: "role".into(),
+                    variants: vec!["x".into()],
+                    default_variant: None,
+                },
+                crate::introspect::EnumInfo {
+                    schema_name: "public".into(),
+                    name: "status".into(),
+                    variants: vec!["y".into()],
+                    default_variant: None,
+                },
+            ],
+            composite_types: vec![crate::introspect::CompositeTypeInfo {
+                schema_name: "billing".into(),
+                name: "addr".into(),
+                fields: vec![],
+            }],
+            domains: vec![crate::introspect::DomainInfo {
+                schema_name: "auth".into(),
+                name: "email".into(),
+                base_type: "text".into(),
+            }],
+            ..Default::default()
+        };
+        // Sorted, deduplicated, public excluded.
+        assert_eq!(required_pg_search_path(&s), vec!["auth", "billing"]);
+    }
+
+    #[test]
+    fn required_search_path_empty_when_only_default_schema() {
+        let s = SchemaInfo {
+            enums: vec![crate::introspect::EnumInfo {
+                schema_name: "public".into(),
+                name: "status".into(),
+                variants: vec!["y".into()],
+                default_variant: None,
+            }],
+            ..Default::default()
+        };
+        assert!(required_pg_search_path(&s).is_empty());
+    }
+
+    #[test]
     fn rust_type_name_default_schema_keeps_bare_name_even_on_collision() {
         let s = SchemaInfo {
             enums: vec![
@@ -979,7 +1058,7 @@ mod tests {
             is_primary_key: false,
             ordinal_position: 0,
             schema_name: "public".to_string(),
-                udt_schema: None,
+            udt_schema: None,
             column_default: None,
         }
     }
@@ -1437,7 +1516,7 @@ mod tests {
                     is_primary_key: false,
                     ordinal_position: 0,
                     schema_name: "public".to_string(),
-                udt_schema: None,
+                    udt_schema: None,
                     column_default: None,
                 }],
             )],
@@ -1600,7 +1679,7 @@ mod tests {
                     is_primary_key: false,
                     ordinal_position: 0,
                     schema_name: "public".to_string(),
-                udt_schema: None,
+                    udt_schema: None,
                     column_default: Some("'idle'::task_status".to_string()),
                 }],
             }],
@@ -1630,7 +1709,7 @@ mod tests {
                     is_primary_key: false,
                     ordinal_position: 0,
                     schema_name: "public".to_string(),
-                udt_schema: None,
+                    udt_schema: None,
                     column_default: None,
                 }],
             }],
@@ -1660,7 +1739,7 @@ mod tests {
                     is_primary_key: false,
                     ordinal_position: 0,
                     schema_name: "public".to_string(),
-                udt_schema: None,
+                    udt_schema: None,
                     column_default: Some("'hello'::character varying".to_string()),
                 }],
             }],
@@ -1685,7 +1764,7 @@ mod tests {
                     is_primary_key: false,
                     ordinal_position: 0,
                     schema_name: "public".to_string(),
-                udt_schema: None,
+                    udt_schema: None,
                     column_default: Some("'idle'::task_status".to_string()),
                 }],
             }],

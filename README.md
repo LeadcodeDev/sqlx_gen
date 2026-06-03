@@ -305,6 +305,40 @@ All generated types include `#[sqlx_gen(...)]` annotations for tooling:
 | Domain type | `#[sqlx_gen(kind = "domain")]` |
 | Primary key field | `#[sqlx_gen(primary_key)]` |
 
+## PostgreSQL — multi-schema setup
+
+When you introspect more than one schema (`-s auth,billing,public`), enums,
+composite types, and domains carry an unqualified
+`#[sqlx(type_name = "...")]` because `sqlx::postgres::PgTypeInfo::with_name`
+does not accept `schema.type`. For PG to resolve those types at runtime, the
+connection must include every non-default schema in its `search_path`.
+
+`sqlx-gen` prints the exact `SET search_path` snippet it needs after
+introspection. Apply it on every new connection via an `after_connect`
+hook:
+
+```rust
+use sqlx::postgres::PgPoolOptions;
+
+let pool = PgPoolOptions::new()
+    .after_connect(|conn, _meta| Box::pin(async move {
+        sqlx::query("SET search_path TO public, auth, billing")
+            .execute(conn).await?;
+        Ok(())
+    }))
+    .connect(&url).await?;
+```
+
+If two schemas declare a type with the same name (e.g. both `auth.role` and
+`billing.role`), sqlx-gen prefixes the Rust identifier with the schema
+PascalCase form (`AuthRole`, `BillingRole`) to keep the generated code
+unambiguous. The bare PascalCase form (`Role`) is reserved for the default
+schema and for unique names.
+
+The `sqlx_gen::codegen::required_pg_search_path(&schema_info)` helper returns
+the list of non-default schemas you need to include — handy when wiring this
+into a build script.
+
 ## License
 
 MIT

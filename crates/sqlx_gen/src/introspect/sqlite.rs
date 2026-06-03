@@ -275,7 +275,7 @@ mod tests {
                     is_primary_key: false,
                     ordinal_position: i as i32,
                     schema_name: "main".to_string(),
-                udt_schema: None,
+                    udt_schema: None,
                     column_default: None,
                 })
                 .collect(),
@@ -297,7 +297,7 @@ mod tests {
                     is_primary_key: false,
                     ordinal_position: i as i32,
                     schema_name: "main".to_string(),
-                udt_schema: None,
+                    udt_schema: None,
                     column_default: None,
                 })
                 .collect(),
@@ -366,7 +366,7 @@ mod tests {
                     is_primary_key: is_pk,
                     ordinal_position: i as i32,
                     schema_name: "main".to_string(),
-                udt_schema: None,
+                    udt_schema: None,
                     column_default: None,
                 })
                 .collect(),

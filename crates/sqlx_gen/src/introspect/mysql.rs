@@ -404,7 +404,7 @@ mod tests {
             is_primary_key: false,
             ordinal_position: 0,
             schema_name: "test_db".to_string(),
-                udt_schema: None,
+            udt_schema: None,
             column_default: None,
         }
     }
@@ -550,7 +550,7 @@ mod tests {
                     is_primary_key: false,
                     ordinal_position: i as i32,
                     schema_name: schema.to_string(),
-                udt_schema: None,
+                    udt_schema: None,
                     column_default: None,
                 })
                 .collect(),
@@ -576,7 +576,7 @@ mod tests {
                     is_primary_key: false,
                     ordinal_position: i as i32,
                     schema_name: schema.to_string(),
-                udt_schema: None,
+                    udt_schema: None,
                     column_default: None,
                 })
                 .collect(),
@@ -671,7 +671,7 @@ mod tests {
                     is_primary_key: is_pk,
                     ordinal_position: i as i32,
                     schema_name: schema.to_string(),
-                udt_schema: None,
+                    udt_schema: None,
                     column_default: None,
                 })
                 .collect(),

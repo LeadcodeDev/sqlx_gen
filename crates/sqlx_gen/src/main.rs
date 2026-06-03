@@ -27,7 +27,7 @@ async fn main() -> Result<()> {
 
 async fn run_entities(args: EntitiesArgs) -> Result<()> {
     let db_kind = args.db.database_kind()?;
-    let type_overrides = args.parse_type_overrides();
+    let type_overrides = args.parse_type_overrides_checked()?;
 
     info!(
         "Connecting to {} database...",

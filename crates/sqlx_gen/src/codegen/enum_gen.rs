@@ -8,6 +8,27 @@ use crate::cli::DatabaseKind;
 use crate::codegen::imports_for_derives;
 use crate::introspect::EnumInfo;
 
+/// Detect two SQL enum variants that collapse to the same Rust identifier after
+/// `to_upper_camel_case` (e.g. `"foo bar"` and `"foo_bar"` both become `FooBar`).
+/// Returns an error pointing at the offending pair so the user can rename one
+/// side in the database before regenerating.
+pub fn check_variant_collisions(enum_info: &EnumInfo) -> crate::error::Result<()> {
+    use std::collections::BTreeMap;
+    let mut seen: BTreeMap<String, &str> = BTreeMap::new();
+    for v in &enum_info.variants {
+        let pascal = v.to_upper_camel_case();
+        if let Some(prev) = seen.get(pascal.as_str()).copied() {
+            return Err(crate::error::Error::Config(format!(
+                "Enum '{}.{}': SQL variants '{}' and '{}' both map to Rust identifier '{}'. \
+                 Rename one of them in the database or use a custom mapping.",
+                enum_info.schema_name, enum_info.name, prev, v, pascal
+            )));
+        }
+        seen.insert(pascal, v.as_str());
+    }
+    Ok(())
+}
+
 pub fn generate_enum(
     enum_info: &EnumInfo,
     db_kind: DatabaseKind,
@@ -198,6 +219,33 @@ mod tests {
         let e = make_enum("user_status", vec!["a"]);
         let code = gen(&e, DatabaseKind::Postgres);
         assert!(code.contains("sqlx(type_name = \"user_status\")"));
+    }
+
+    #[test]
+    fn test_check_variant_collisions_detects_after_camel_case() {
+        let e = EnumInfo {
+            schema_name: "public".into(),
+            name: "weird".into(),
+            variants: vec!["foo bar".into(), "foo_bar".into()],
+            default_variant: None,
+        };
+        let result = check_variant_collisions(&e);
+        assert!(result.is_err(), "must detect collision");
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("FooBar"), "error must mention conflicting Rust ident, got: {}", msg);
+        assert!(msg.contains("foo bar") || msg.contains("foo_bar"));
+    }
+
+    #[test]
+    fn test_check_variant_collisions_accepts_distinct_variants() {
+        let e = make_enum("status", vec!["active", "inactive"]);
+        assert!(check_variant_collisions(&e).is_ok());
+    }
+
+    #[test]
+    fn test_check_variant_collisions_accepts_single_variant() {
+        let e = make_enum("status", vec!["only"]);
+        assert!(check_variant_collisions(&e).is_ok());
     }
 
     #[test]

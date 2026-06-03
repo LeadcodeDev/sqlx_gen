@@ -89,6 +89,14 @@ async fn run_entities(args: EntitiesArgs) -> Result<()> {
         schema_info.composite_types.len(),
         schema_info.domains.len(),
     );
+    if table_count == 0 && view_count == 0 && enum_count == 0 {
+        warn!(
+            "No tables, views, or enums found in schemas {:?}. \
+             Either the schema is empty or the DB user lacks SELECT on \
+             information_schema. Check credentials and `--schemas`.",
+            args.db.schemas
+        );
+    }
 
     let files = codegen::generate(
         &schema_info,

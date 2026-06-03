@@ -34,19 +34,15 @@ pub async fn introspect(pool: &SqlitePool, include_views: bool) -> Result<Schema
 /// `sqlite_master.sql`. Promotes the column's `udt_name` to the enum's
 /// synthesised name (`<table>_<col>_enum`) so the rest of the pipeline
 /// treats it like a real enum (with PgHasArrayType skipped for SQLite).
-async fn extract_check_enums(
-    pool: &SqlitePool,
-    tables: &mut [TableInfo],
-) -> Result<Vec<EnumInfo>> {
+async fn extract_check_enums(pool: &SqlitePool, tables: &mut [TableInfo]) -> Result<Vec<EnumInfo>> {
     let mut enums = Vec::new();
 
     for table in tables.iter_mut() {
-        let sql: Option<(Option<String>,)> = sqlx::query_as(
-            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
-        )
-        .bind(&table.name)
-        .fetch_optional(pool)
-        .await?;
+        let sql: Option<(Option<String>,)> =
+            sqlx::query_as("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+                .bind(&table.name)
+                .fetch_optional(pool)
+                .await?;
         let Some((Some(ddl),)) = sql else { continue };
 
         for col in table.columns.iter_mut() {

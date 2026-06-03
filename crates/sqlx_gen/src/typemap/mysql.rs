@@ -76,7 +76,15 @@ pub fn map_type(data_type: &str, column_type: &str, time_crate: TimeCrate) -> Ru
         },
         "json" => RustType::with_import("Value", "use serde_json::Value;"),
         "year" => RustType::simple("i16"),
-        "bit" => RustType::simple("Vec<u8>"),
+        "bit" => {
+            // BIT(1) is the idiomatic MySQL boolean. Treat anything wider as raw bytes.
+            if ct == "bit(1)" {
+                RustType::simple("bool")
+            } else {
+                RustType::simple("Vec<u8>")
+            }
+        }
+        "boolean" | "bool" => RustType::simple("bool"),
         _ => RustType::simple("String"),
     }
 }
@@ -312,8 +320,18 @@ mod tests {
     }
 
     #[test]
-    fn test_bit() {
-        assert_eq!(map_type("bit", "bit(1)", TimeCrate::Chrono).path, "Vec<u8>");
+    fn test_bit1_is_bool() {
+        assert_eq!(map_type("bit", "bit(1)", TimeCrate::Chrono).path, "bool");
+    }
+
+    #[test]
+    fn test_bit8_is_bytes() {
+        assert_eq!(map_type("bit", "bit(8)", TimeCrate::Chrono).path, "Vec<u8>");
+    }
+
+    #[test]
+    fn test_boolean_alias_is_bool() {
+        assert_eq!(map_type("boolean", "boolean", TimeCrate::Chrono).path, "bool");
     }
 
     // --- enum placeholder ---

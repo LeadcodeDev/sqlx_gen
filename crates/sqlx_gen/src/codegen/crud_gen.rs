@@ -857,14 +857,26 @@ fn pool_type_tokens(db_kind: DatabaseKind) -> TokenStream {
     }
 }
 
-/// Wraps a SQL string as a raw string literal `r#"..."#` in the generated code.
-/// Multi-line SQL gets a leading newline so each clause starts on its own line.
+/// Wraps a SQL string as a raw string literal `r#"..."#` (or `r##"..."##`
+/// when the body contains `"#`) in the generated code. Multi-line SQL gets
+/// a leading newline so each clause starts on its own line.
 fn raw_sql_lit(s: &str) -> TokenStream {
-    if s.contains('\n') {
-        format!("r#\"\n{}\n\"#", s).parse().unwrap()
-    } else {
-        format!("r#\"{}\"#", s).parse().unwrap()
+    // Pick the smallest number of `#` characters whose fence isn't present in
+    // the body. Quoted SQL identifiers (`"users"`) followed by `#` are rare in
+    // practice but a malicious or quirky DB name could trip the default fence.
+    let mut hashes = 1usize;
+    while s.contains(&format!("\"{}", "#".repeat(hashes))) {
+        hashes += 1;
     }
+    let fence = "#".repeat(hashes);
+    let body = if s.contains('\n') {
+        format!("\n{}\n", s)
+    } else {
+        s.to_string()
+    };
+    format!("r{fence}\"{body}\"{fence}", fence = fence, body = body)
+        .parse()
+        .expect("raw_sql_lit must produce a valid Rust raw string literal")
 }
 
 fn placeholder(db_kind: DatabaseKind, index: usize) -> String {

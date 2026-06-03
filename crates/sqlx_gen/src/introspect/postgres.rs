@@ -39,7 +39,20 @@ pub async fn introspect(
 }
 
 async fn fetch_tables(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo>> {
-    let rows = sqlx::query_as::<_, (String, String, String, String, String, String, i32, bool, Option<String>)>(
+    let rows = sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            i32,
+            bool,
+            Option<String>,
+        ),
+    >(
         r#"
         SELECT
             c.table_schema,
@@ -75,7 +88,9 @@ async fn fetch_tables(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo
     let mut tables: Vec<TableInfo> = Vec::new();
     let mut current_key: Option<(String, String)> = None;
 
-    for (schema, table, col_name, data_type, udt_name, nullable, ordinal, is_pk, column_default) in rows {
+    for (schema, table, col_name, data_type, udt_name, nullable, ordinal, is_pk, column_default) in
+        rows
+    {
         let key = (schema.clone(), table.clone());
         if current_key.as_ref() != Some(&key) {
             current_key = Some(key);
@@ -106,7 +121,19 @@ async fn fetch_tables(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo
 }
 
 async fn fetch_views(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo>> {
-    let rows = sqlx::query_as::<_, (String, String, String, String, String, String, i32, Option<String>)>(
+    let rows = sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            i32,
+            Option<String>,
+        ),
+    >(
         r#"
         SELECT
             c.table_schema,
@@ -202,22 +229,17 @@ async fn fetch_view_column_nullability(
     Ok(rows
         .into_iter()
         .map(
-            |(view_schema, view_name, source_column_name, source_not_null)| {
-                ViewColumnNullability {
-                    view_schema,
-                    view_name,
-                    source_column_name,
-                    source_not_null,
-                }
+            |(view_schema, view_name, source_column_name, source_not_null)| ViewColumnNullability {
+                view_schema,
+                view_name,
+                source_column_name,
+                source_not_null,
             },
         )
         .collect())
 }
 
-fn resolve_view_nullability(
-    views: &mut [TableInfo],
-    nullability_info: &[ViewColumnNullability],
-) {
+fn resolve_view_nullability(views: &mut [TableInfo], nullability_info: &[ViewColumnNullability]) {
     // Build lookup: (view_schema, view_name, column_name) -> Vec<is_not_null>
     let mut lookup: HashMap<(&str, &str, &str), Vec<bool>> = HashMap::new();
     for info in nullability_info {
@@ -301,10 +323,7 @@ async fn fetch_view_column_primary_keys(
         .collect())
 }
 
-fn resolve_view_primary_keys(
-    views: &mut [TableInfo],
-    pk_info: &[ViewColumnPrimaryKey],
-) {
+fn resolve_view_primary_keys(views: &mut [TableInfo], pk_info: &[ViewColumnPrimaryKey]) {
     // Build lookup: (view_schema, view_name, column_name) -> Vec<is_pk>
     let mut lookup: HashMap<(&str, &str, &str), Vec<bool>> = HashMap::new();
     for info in pk_info {

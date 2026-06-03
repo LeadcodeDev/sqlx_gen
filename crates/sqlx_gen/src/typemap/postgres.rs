@@ -10,22 +10,43 @@ pub fn is_builtin(udt_name: &str) -> bool {
     matches!(
         udt_name,
         "bool"
-            | "int2" | "smallint" | "smallserial"
-            | "int4" | "int" | "integer" | "serial"
-            | "int8" | "bigint" | "bigserial"
-            | "float4" | "real"
-            | "float8" | "double precision"
-            | "numeric" | "decimal"
-            | "varchar" | "text" | "bpchar" | "char" | "name" | "citext"
+            | "int2"
+            | "smallint"
+            | "smallserial"
+            | "int4"
+            | "int"
+            | "integer"
+            | "serial"
+            | "int8"
+            | "bigint"
+            | "bigserial"
+            | "float4"
+            | "real"
+            | "float8"
+            | "double precision"
+            | "numeric"
+            | "decimal"
+            | "varchar"
+            | "text"
+            | "bpchar"
+            | "char"
+            | "name"
+            | "citext"
             | "bytea"
-            | "timestamp" | "timestamp without time zone"
-            | "timestamptz" | "timestamp with time zone"
+            | "timestamp"
+            | "timestamp without time zone"
+            | "timestamptz"
+            | "timestamp with time zone"
             | "date"
-            | "time" | "time without time zone"
-            | "timetz" | "time with time zone"
+            | "time"
+            | "time without time zone"
+            | "timetz"
+            | "time with time zone"
             | "uuid"
-            | "json" | "jsonb"
-            | "inet" | "cidr"
+            | "json"
+            | "jsonb"
+            | "inet"
+            | "cidr"
             | "interval"
             | "oid"
     )
@@ -51,7 +72,11 @@ pub fn map_type(udt_name: &str, schema_info: &SchemaInfo, time_crate: TimeCrate)
     }
 
     // Check if it's a known composite type
-    if schema_info.composite_types.iter().any(|c| c.name == udt_name) {
+    if schema_info
+        .composite_types
+        .iter()
+        .any(|c| c.name == udt_name)
+    {
         let name = udt_name.to_upper_camel_case();
         return RustType::with_import(&name, &format!("use super::types::{};", name));
     }
@@ -69,17 +94,21 @@ pub fn map_type(udt_name: &str, schema_info: &SchemaInfo, time_crate: TimeCrate)
         "int8" | "bigint" | "bigserial" => RustType::simple("i64"),
         "float4" | "real" => RustType::simple("f32"),
         "float8" | "double precision" => RustType::simple("f64"),
-        "numeric" | "decimal" => {
-            RustType::with_import("Decimal", "use rust_decimal::Decimal;")
-        }
+        "numeric" | "decimal" => RustType::with_import("Decimal", "use rust_decimal::Decimal;"),
         "varchar" | "text" | "bpchar" | "char" | "name" | "citext" => RustType::simple("String"),
         "bytea" => RustType::simple("Vec<u8>"),
         "timestamp" | "timestamp without time zone" => match time_crate {
-            TimeCrate::Chrono => RustType::with_import("NaiveDateTime", "use chrono::NaiveDateTime;"),
-            TimeCrate::Time => RustType::with_import("PrimitiveDateTime", "use time::PrimitiveDateTime;"),
+            TimeCrate::Chrono => {
+                RustType::with_import("NaiveDateTime", "use chrono::NaiveDateTime;")
+            }
+            TimeCrate::Time => {
+                RustType::with_import("PrimitiveDateTime", "use time::PrimitiveDateTime;")
+            }
         },
         "timestamptz" | "timestamp with time zone" => match time_crate {
-            TimeCrate::Chrono => RustType::with_import("DateTime<Utc>", "use chrono::{DateTime, Utc};"),
+            TimeCrate::Chrono => {
+                RustType::with_import("DateTime<Utc>", "use chrono::{DateTime, Utc};")
+            }
             TimeCrate::Time => RustType::with_import("OffsetDateTime", "use time::OffsetDateTime;"),
         },
         "date" => match time_crate {
@@ -95,16 +124,9 @@ pub fn map_type(udt_name: &str, schema_info: &SchemaInfo, time_crate: TimeCrate)
             TimeCrate::Time => RustType::with_import("Time", "use time::Time;"),
         },
         "uuid" => RustType::with_import("Uuid", "use uuid::Uuid;"),
-        "json" | "jsonb" => {
-            RustType::with_import("Value", "use serde_json::Value;")
-        }
-        "inet" | "cidr" => {
-            RustType::with_import("IpNetwork", "use ipnetwork::IpNetwork;")
-        }
-        "interval" => RustType::with_import(
-            "PgInterval",
-            "use sqlx::postgres::types::PgInterval;",
-        ),
+        "json" | "jsonb" => RustType::with_import("Value", "use serde_json::Value;"),
+        "inet" | "cidr" => RustType::with_import("IpNetwork", "use ipnetwork::IpNetwork;"),
+        "interval" => RustType::with_import("PgInterval", "use sqlx::postgres::types::PgInterval;"),
         "oid" => RustType::simple("u32"),
         _ => RustType::simple("String"), // fallback
     }
@@ -158,72 +180,114 @@ mod tests {
 
     #[test]
     fn test_bool() {
-        assert_eq!(map_type("bool", &empty_schema(), TimeCrate::Chrono).path, "bool");
+        assert_eq!(
+            map_type("bool", &empty_schema(), TimeCrate::Chrono).path,
+            "bool"
+        );
     }
 
     #[test]
     fn test_int2() {
-        assert_eq!(map_type("int2", &empty_schema(), TimeCrate::Chrono).path, "i16");
+        assert_eq!(
+            map_type("int2", &empty_schema(), TimeCrate::Chrono).path,
+            "i16"
+        );
     }
 
     #[test]
     fn test_smallint() {
-        assert_eq!(map_type("smallint", &empty_schema(), TimeCrate::Chrono).path, "i16");
+        assert_eq!(
+            map_type("smallint", &empty_schema(), TimeCrate::Chrono).path,
+            "i16"
+        );
     }
 
     #[test]
     fn test_smallserial() {
-        assert_eq!(map_type("smallserial", &empty_schema(), TimeCrate::Chrono).path, "i16");
+        assert_eq!(
+            map_type("smallserial", &empty_schema(), TimeCrate::Chrono).path,
+            "i16"
+        );
     }
 
     #[test]
     fn test_int4() {
-        assert_eq!(map_type("int4", &empty_schema(), TimeCrate::Chrono).path, "i32");
+        assert_eq!(
+            map_type("int4", &empty_schema(), TimeCrate::Chrono).path,
+            "i32"
+        );
     }
 
     #[test]
     fn test_integer() {
-        assert_eq!(map_type("integer", &empty_schema(), TimeCrate::Chrono).path, "i32");
+        assert_eq!(
+            map_type("integer", &empty_schema(), TimeCrate::Chrono).path,
+            "i32"
+        );
     }
 
     #[test]
     fn test_serial() {
-        assert_eq!(map_type("serial", &empty_schema(), TimeCrate::Chrono).path, "i32");
+        assert_eq!(
+            map_type("serial", &empty_schema(), TimeCrate::Chrono).path,
+            "i32"
+        );
     }
 
     #[test]
     fn test_int8() {
-        assert_eq!(map_type("int8", &empty_schema(), TimeCrate::Chrono).path, "i64");
+        assert_eq!(
+            map_type("int8", &empty_schema(), TimeCrate::Chrono).path,
+            "i64"
+        );
     }
 
     #[test]
     fn test_bigint() {
-        assert_eq!(map_type("bigint", &empty_schema(), TimeCrate::Chrono).path, "i64");
+        assert_eq!(
+            map_type("bigint", &empty_schema(), TimeCrate::Chrono).path,
+            "i64"
+        );
     }
 
     #[test]
     fn test_bigserial() {
-        assert_eq!(map_type("bigserial", &empty_schema(), TimeCrate::Chrono).path, "i64");
+        assert_eq!(
+            map_type("bigserial", &empty_schema(), TimeCrate::Chrono).path,
+            "i64"
+        );
     }
 
     #[test]
     fn test_float4() {
-        assert_eq!(map_type("float4", &empty_schema(), TimeCrate::Chrono).path, "f32");
+        assert_eq!(
+            map_type("float4", &empty_schema(), TimeCrate::Chrono).path,
+            "f32"
+        );
     }
 
     #[test]
     fn test_real() {
-        assert_eq!(map_type("real", &empty_schema(), TimeCrate::Chrono).path, "f32");
+        assert_eq!(
+            map_type("real", &empty_schema(), TimeCrate::Chrono).path,
+            "f32"
+        );
     }
 
     #[test]
     fn test_float8() {
-        assert_eq!(map_type("float8", &empty_schema(), TimeCrate::Chrono).path, "f64");
+        assert_eq!(
+            map_type("float8", &empty_schema(), TimeCrate::Chrono).path,
+            "f64"
+        );
     }
 
     #[test]
     fn test_double_precision() {
-        assert_eq!(map_type("double precision", &empty_schema(), TimeCrate::Chrono).path, "f64");
+        assert_eq!(
+            map_type("double precision", &empty_schema(), TimeCrate::Chrono).path,
+            "f64"
+        );
     }
 
     #[test]
@@ -241,32 +305,50 @@ mod tests {
 
     #[test]
     fn test_varchar() {
-        assert_eq!(map_type("varchar", &empty_schema(), TimeCrate::Chrono).path, "String");
+        assert_eq!(
+            map_type("varchar", &empty_schema(), TimeCrate::Chrono).path,
+            "String"
+        );
     }
 
     #[test]
     fn test_text() {
-        assert_eq!(map_type("text", &empty_schema(), TimeCrate::Chrono).path, "String");
+        assert_eq!(
+            map_type("text", &empty_schema(), TimeCrate::Chrono).path,
+            "String"
+        );
     }
 
     #[test]
     fn test_bpchar() {
-        assert_eq!(map_type("bpchar", &empty_schema(), TimeCrate::Chrono).path, "String");
+        assert_eq!(
+            map_type("bpchar", &empty_schema(), TimeCrate::Chrono).path,
+            "String"
+        );
     }
 
     #[test]
     fn test_citext() {
-        assert_eq!(map_type("citext", &empty_schema(), TimeCrate::Chrono).path, "String");
+        assert_eq!(
+            map_type("citext", &empty_schema(), TimeCrate::Chrono).path,
+            "String"
+        );
     }
 
     #[test]
     fn test_name() {
-        assert_eq!(map_type("name", &empty_schema(), TimeCrate::Chrono).path, "String");
+        assert_eq!(
+            map_type("name", &empty_schema(), TimeCrate::Chrono).path,
+            "String"
+        );
     }
 
     #[test]
     fn test_bytea() {
-        assert_eq!(map_type("bytea", &empty_schema(), TimeCrate::Chrono).path, "Vec<u8>");
+        assert_eq!(
+            map_type("bytea", &empty_schema(), TimeCrate::Chrono).path,
+            "Vec<u8>"
+        );
     }
 
     #[test]
@@ -336,7 +418,10 @@ mod tests {
 
     #[test]
     fn test_oid() {
-        assert_eq!(map_type("oid", &empty_schema(), TimeCrate::Chrono).path, "u32");
+        assert_eq!(
+            map_type("oid", &empty_schema(), TimeCrate::Chrono).path,
+            "u32"
+        );
     }
 
     #[test]
@@ -350,22 +435,34 @@ mod tests {
 
     #[test]
     fn test_array_int4() {
-        assert_eq!(map_type("_int4", &empty_schema(), TimeCrate::Chrono).path, "Vec<i32>");
+        assert_eq!(
+            map_type("_int4", &empty_schema(), TimeCrate::Chrono).path,
+            "Vec<i32>"
+        );
     }
 
     #[test]
     fn test_array_bracket_notation() {
-        assert_eq!(map_type("integer[]", &empty_schema(), TimeCrate::Chrono).path, "Vec<i32>");
+        assert_eq!(
+            map_type("integer[]", &empty_schema(), TimeCrate::Chrono).path,
+            "Vec<i32>"
+        );
     }
 
     #[test]
     fn test_array_bracket_text() {
-        assert_eq!(map_type("text[]", &empty_schema(), TimeCrate::Chrono).path, "Vec<String>");
+        assert_eq!(
+            map_type("text[]", &empty_schema(), TimeCrate::Chrono).path,
+            "Vec<String>"
+        );
     }
 
     #[test]
     fn test_array_text() {
-        assert_eq!(map_type("_text", &empty_schema(), TimeCrate::Chrono).path, "Vec<String>");
+        assert_eq!(
+            map_type("_text", &empty_schema(), TimeCrate::Chrono).path,
+            "Vec<String>"
+        );
     }
 
     #[test]
@@ -377,7 +474,10 @@ mod tests {
 
     #[test]
     fn test_array_bool() {
-        assert_eq!(map_type("_bool", &empty_schema(), TimeCrate::Chrono).path, "Vec<bool>");
+        assert_eq!(
+            map_type("_bool", &empty_schema(), TimeCrate::Chrono).path,
+            "Vec<bool>"
+        );
     }
 
     #[test]
@@ -389,7 +489,10 @@ mod tests {
 
     #[test]
     fn test_array_bytea() {
-        assert_eq!(map_type("_bytea", &empty_schema(), TimeCrate::Chrono).path, "Vec<Vec<u8>>");
+        assert_eq!(
+            map_type("_bytea", &empty_schema(), TimeCrate::Chrono).path,
+            "Vec<Vec<u8>>"
+        );
     }
 
     // --- enums/composites/domains ---
@@ -399,7 +502,11 @@ mod tests {
         let schema = schema_with_enum("status");
         let rt = map_type("status", &schema, TimeCrate::Chrono);
         assert_eq!(rt.path, "Status");
-        assert!(rt.needs_import.as_ref().unwrap().contains("super::types::Status"));
+        assert!(rt
+            .needs_import
+            .as_ref()
+            .unwrap()
+            .contains("super::types::Status"));
     }
 
     #[test]
@@ -414,7 +521,11 @@ mod tests {
         let schema = schema_with_composite("address");
         let rt = map_type("address", &schema, TimeCrate::Chrono);
         assert_eq!(rt.path, "Address");
-        assert!(rt.needs_import.as_ref().unwrap().contains("super::types::Address"));
+        assert!(rt
+            .needs_import
+            .as_ref()
+            .unwrap()
+            .contains("super::types::Address"));
     }
 
     #[test]
@@ -467,12 +578,18 @@ mod tests {
 
     #[test]
     fn test_geometry_fallback() {
-        assert_eq!(map_type("geometry", &empty_schema(), TimeCrate::Chrono).path, "String");
+        assert_eq!(
+            map_type("geometry", &empty_schema(), TimeCrate::Chrono).path,
+            "String"
+        );
     }
 
     #[test]
     fn test_hstore_fallback() {
-        assert_eq!(map_type("hstore", &empty_schema(), TimeCrate::Chrono).path, "String");
+        assert_eq!(
+            map_type("hstore", &empty_schema(), TimeCrate::Chrono).path,
+            "String"
+        );
     }
 
     // --- time crate ---
@@ -481,14 +598,22 @@ mod tests {
     fn test_timestamptz_time_crate() {
         let rt = map_type("timestamptz", &empty_schema(), TimeCrate::Time);
         assert_eq!(rt.path, "OffsetDateTime");
-        assert!(rt.needs_import.as_ref().unwrap().contains("time::OffsetDateTime"));
+        assert!(rt
+            .needs_import
+            .as_ref()
+            .unwrap()
+            .contains("time::OffsetDateTime"));
     }
 
     #[test]
     fn test_timestamp_time_crate() {
         let rt = map_type("timestamp", &empty_schema(), TimeCrate::Time);
         assert_eq!(rt.path, "PrimitiveDateTime");
-        assert!(rt.needs_import.as_ref().unwrap().contains("time::PrimitiveDateTime"));
+        assert!(rt
+            .needs_import
+            .as_ref()
+            .unwrap()
+            .contains("time::PrimitiveDateTime"));
     }
 
     #[test]

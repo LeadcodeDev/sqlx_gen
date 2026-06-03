@@ -54,7 +54,11 @@ pub fn map_column(
     // Check type overrides first
     if let Some(override_type) = overrides.get(&col.udt_name) {
         let rt = RustType::simple(override_type);
-        return if col.is_nullable { rt.wrap_option() } else { rt };
+        return if col.is_nullable {
+            rt.wrap_option()
+        } else {
+            rt
+        };
     }
 
     let base = match db_kind {
@@ -175,7 +179,13 @@ mod tests {
         let schema = SchemaInfo::default();
         let mut overrides = HashMap::new();
         overrides.insert("uuid".to_string(), "MyUuid".to_string());
-        let rt = map_column(&col, DatabaseKind::Postgres, &schema, &overrides, TimeCrate::Chrono);
+        let rt = map_column(
+            &col,
+            DatabaseKind::Postgres,
+            &schema,
+            &overrides,
+            TimeCrate::Chrono,
+        );
         assert_eq!(rt.path, "MyUuid");
         assert!(rt.needs_import.is_none());
     }
@@ -186,7 +196,13 @@ mod tests {
         let schema = SchemaInfo::default();
         let mut overrides = HashMap::new();
         overrides.insert("uuid".to_string(), "MyUuid".to_string());
-        let rt = map_column(&col, DatabaseKind::Postgres, &schema, &overrides, TimeCrate::Chrono);
+        let rt = map_column(
+            &col,
+            DatabaseKind::Postgres,
+            &schema,
+            &overrides,
+            TimeCrate::Chrono,
+        );
         assert_eq!(rt.path, "Option<MyUuid>");
     }
 
@@ -195,7 +211,13 @@ mod tests {
         let col = make_col("int4", "integer", false);
         let schema = SchemaInfo::default();
         let overrides = HashMap::new();
-        let rt = map_column(&col, DatabaseKind::Postgres, &schema, &overrides, TimeCrate::Chrono);
+        let rt = map_column(
+            &col,
+            DatabaseKind::Postgres,
+            &schema,
+            &overrides,
+            TimeCrate::Chrono,
+        );
         assert_eq!(rt.path, "i32");
     }
 
@@ -204,8 +226,13 @@ mod tests {
         let col = make_col("int4", "integer", true);
         let schema = SchemaInfo::default();
         let overrides = HashMap::new();
-        let rt = map_column(&col, DatabaseKind::Postgres, &schema, &overrides, TimeCrate::Chrono);
+        let rt = map_column(
+            &col,
+            DatabaseKind::Postgres,
+            &schema,
+            &overrides,
+            TimeCrate::Chrono,
+        );
         assert_eq!(rt.path, "Option<i32>");
     }
 }
-

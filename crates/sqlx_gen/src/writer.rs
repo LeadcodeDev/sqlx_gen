@@ -150,7 +150,11 @@ mod tests {
 
     #[test]
     fn test_build_content_with_origin() {
-        let f = make_file("users.rs", "pub struct Users {}", Some("Table: public.users"));
+        let f = make_file(
+            "users.rs",
+            "pub struct Users {}",
+            Some("Table: public.users"),
+        );
         let content = build_file_content(&f);
         assert!(content.contains(COMMENT));
         assert!(content.contains(INNER_ATTR));
@@ -231,8 +235,16 @@ mod tests {
     #[test]
     fn test_multi_creates_files_and_mod() {
         let files = vec![
-            make_file("users.rs", "pub struct Users {}", Some("Table: public.users")),
-            make_file("posts.rs", "pub struct Posts {}", Some("Table: public.posts")),
+            make_file(
+                "users.rs",
+                "pub struct Users {}",
+                Some("Table: public.users"),
+            ),
+            make_file(
+                "posts.rs",
+                "pub struct Posts {}",
+                Some("Table: public.posts"),
+            ),
         ];
         let dir = tempfile::tempdir().unwrap();
         write_files(&files, dir.path(), false, false).unwrap();
@@ -302,7 +314,11 @@ mod tests {
 
     #[test]
     fn test_single_creates_models_rs() {
-        let files = vec![make_file("users.rs", "pub struct Users {}", Some("Table: public.users"))];
+        let files = vec![make_file(
+            "users.rs",
+            "pub struct Users {}",
+            Some("Table: public.users"),
+        )];
         let dir = tempfile::tempdir().unwrap();
         write_files(&files, dir.path(), true, false).unwrap();
         assert!(dir.path().join("models.rs").exists());

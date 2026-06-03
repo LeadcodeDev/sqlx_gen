@@ -49,9 +49,7 @@ pub fn map_type(data_type: &str, column_type: &str, time_crate: TimeCrate) -> Ru
         }
         "float" => RustType::simple("f32"),
         "double" => RustType::simple("f64"),
-        "decimal" | "numeric" => {
-            RustType::with_import("Decimal", "use rust_decimal::Decimal;")
-        }
+        "decimal" | "numeric" => RustType::with_import("Decimal", "use rust_decimal::Decimal;"),
         "varchar" | "char" | "text" | "tinytext" | "mediumtext" | "longtext" | "enum" | "set" => {
             RustType::simple("String")
         }
@@ -67,11 +65,17 @@ pub fn map_type(data_type: &str, column_type: &str, time_crate: TimeCrate) -> Ru
             TimeCrate::Time => RustType::with_import("Time", "use time::Time;"),
         },
         "datetime" => match time_crate {
-            TimeCrate::Chrono => RustType::with_import("NaiveDateTime", "use chrono::NaiveDateTime;"),
-            TimeCrate::Time => RustType::with_import("PrimitiveDateTime", "use time::PrimitiveDateTime;"),
+            TimeCrate::Chrono => {
+                RustType::with_import("NaiveDateTime", "use chrono::NaiveDateTime;")
+            }
+            TimeCrate::Time => {
+                RustType::with_import("PrimitiveDateTime", "use time::PrimitiveDateTime;")
+            }
         },
         "timestamp" => match time_crate {
-            TimeCrate::Chrono => RustType::with_import("DateTime<Utc>", "use chrono::{DateTime, Utc};"),
+            TimeCrate::Chrono => {
+                RustType::with_import("DateTime<Utc>", "use chrono::{DateTime, Utc};")
+            }
             TimeCrate::Time => RustType::with_import("OffsetDateTime", "use time::OffsetDateTime;"),
         },
         "json" => RustType::with_import("Value", "use serde_json::Value;"),
@@ -104,7 +108,10 @@ mod tests {
 
     #[test]
     fn test_tinyint1_is_bool() {
-        assert_eq!(map_type("tinyint", "tinyint(1)", TimeCrate::Chrono).path, "bool");
+        assert_eq!(
+            map_type("tinyint", "tinyint(1)", TimeCrate::Chrono).path,
+            "bool"
+        );
     }
 
     #[test]
@@ -114,29 +121,44 @@ mod tests {
 
     #[test]
     fn test_tinyint_unsigned() {
-        assert_eq!(map_type("tinyint", "tinyint unsigned", TimeCrate::Chrono).path, "u8");
+        assert_eq!(
+            map_type("tinyint", "tinyint unsigned", TimeCrate::Chrono).path,
+            "u8"
+        );
     }
 
     #[test]
     fn test_tinyint3_signed() {
-        assert_eq!(map_type("tinyint", "tinyint(3)", TimeCrate::Chrono).path, "i8");
+        assert_eq!(
+            map_type("tinyint", "tinyint(3)", TimeCrate::Chrono).path,
+            "i8"
+        );
     }
 
     #[test]
     fn test_tinyint3_unsigned() {
-        assert_eq!(map_type("tinyint", "tinyint(3) unsigned", TimeCrate::Chrono).path, "u8");
+        assert_eq!(
+            map_type("tinyint", "tinyint(3) unsigned", TimeCrate::Chrono).path,
+            "u8"
+        );
     }
 
     // --- smallint ---
 
     #[test]
     fn test_smallint_signed() {
-        assert_eq!(map_type("smallint", "smallint", TimeCrate::Chrono).path, "i16");
+        assert_eq!(
+            map_type("smallint", "smallint", TimeCrate::Chrono).path,
+            "i16"
+        );
     }
 
     #[test]
     fn test_smallint_unsigned() {
-        assert_eq!(map_type("smallint", "smallint unsigned", TimeCrate::Chrono).path, "u16");
+        assert_eq!(
+            map_type("smallint", "smallint unsigned", TimeCrate::Chrono).path,
+            "u16"
+        );
     }
 
     // --- int/mediumint ---
@@ -148,17 +170,26 @@ mod tests {
 
     #[test]
     fn test_int_unsigned() {
-        assert_eq!(map_type("int", "int unsigned", TimeCrate::Chrono).path, "u32");
+        assert_eq!(
+            map_type("int", "int unsigned", TimeCrate::Chrono).path,
+            "u32"
+        );
     }
 
     #[test]
     fn test_mediumint_signed() {
-        assert_eq!(map_type("mediumint", "mediumint", TimeCrate::Chrono).path, "i32");
+        assert_eq!(
+            map_type("mediumint", "mediumint", TimeCrate::Chrono).path,
+            "i32"
+        );
     }
 
     #[test]
     fn test_mediumint_unsigned() {
-        assert_eq!(map_type("mediumint", "mediumint unsigned", TimeCrate::Chrono).path, "u32");
+        assert_eq!(
+            map_type("mediumint", "mediumint unsigned", TimeCrate::Chrono).path,
+            "u32"
+        );
     }
 
     #[test]
@@ -168,7 +199,10 @@ mod tests {
 
     #[test]
     fn test_int11_unsigned() {
-        assert_eq!(map_type("int", "int(11) unsigned", TimeCrate::Chrono).path, "u32");
+        assert_eq!(
+            map_type("int", "int(11) unsigned", TimeCrate::Chrono).path,
+            "u32"
+        );
     }
 
     // --- bigint ---
@@ -180,12 +214,18 @@ mod tests {
 
     #[test]
     fn test_bigint_unsigned() {
-        assert_eq!(map_type("bigint", "bigint unsigned", TimeCrate::Chrono).path, "u64");
+        assert_eq!(
+            map_type("bigint", "bigint unsigned", TimeCrate::Chrono).path,
+            "u64"
+        );
     }
 
     #[test]
     fn test_bigint20_signed() {
-        assert_eq!(map_type("bigint", "bigint(20)", TimeCrate::Chrono).path, "i64");
+        assert_eq!(
+            map_type("bigint", "bigint(20)", TimeCrate::Chrono).path,
+            "i64"
+        );
     }
 
     // --- floats ---
@@ -220,12 +260,18 @@ mod tests {
 
     #[test]
     fn test_varchar() {
-        assert_eq!(map_type("varchar", "varchar(255)", TimeCrate::Chrono).path, "String");
+        assert_eq!(
+            map_type("varchar", "varchar(255)", TimeCrate::Chrono).path,
+            "String"
+        );
     }
 
     #[test]
     fn test_char() {
-        assert_eq!(map_type("char", "char(1)", TimeCrate::Chrono).path, "String");
+        assert_eq!(
+            map_type("char", "char(1)", TimeCrate::Chrono).path,
+            "String"
+        );
     }
 
     #[test]
@@ -235,34 +281,52 @@ mod tests {
 
     #[test]
     fn test_tinytext() {
-        assert_eq!(map_type("tinytext", "tinytext", TimeCrate::Chrono).path, "String");
+        assert_eq!(
+            map_type("tinytext", "tinytext", TimeCrate::Chrono).path,
+            "String"
+        );
     }
 
     #[test]
     fn test_mediumtext() {
-        assert_eq!(map_type("mediumtext", "mediumtext", TimeCrate::Chrono).path, "String");
+        assert_eq!(
+            map_type("mediumtext", "mediumtext", TimeCrate::Chrono).path,
+            "String"
+        );
     }
 
     #[test]
     fn test_longtext() {
-        assert_eq!(map_type("longtext", "longtext", TimeCrate::Chrono).path, "String");
+        assert_eq!(
+            map_type("longtext", "longtext", TimeCrate::Chrono).path,
+            "String"
+        );
     }
 
     #[test]
     fn test_set() {
-        assert_eq!(map_type("set", "set('a','b')", TimeCrate::Chrono).path, "String");
+        assert_eq!(
+            map_type("set", "set('a','b')", TimeCrate::Chrono).path,
+            "String"
+        );
     }
 
     // --- binary ---
 
     #[test]
     fn test_binary() {
-        assert_eq!(map_type("binary", "binary(16)", TimeCrate::Chrono).path, "Vec<u8>");
+        assert_eq!(
+            map_type("binary", "binary(16)", TimeCrate::Chrono).path,
+            "Vec<u8>"
+        );
     }
 
     #[test]
     fn test_varbinary() {
-        assert_eq!(map_type("varbinary", "varbinary(255)", TimeCrate::Chrono).path, "Vec<u8>");
+        assert_eq!(
+            map_type("varbinary", "varbinary(255)", TimeCrate::Chrono).path,
+            "Vec<u8>"
+        );
     }
 
     #[test]
@@ -272,7 +336,10 @@ mod tests {
 
     #[test]
     fn test_tinyblob() {
-        assert_eq!(map_type("tinyblob", "tinyblob", TimeCrate::Chrono).path, "Vec<u8>");
+        assert_eq!(
+            map_type("tinyblob", "tinyblob", TimeCrate::Chrono).path,
+            "Vec<u8>"
+        );
     }
 
     // --- dates ---
@@ -331,14 +398,20 @@ mod tests {
 
     #[test]
     fn test_boolean_alias_is_bool() {
-        assert_eq!(map_type("boolean", "boolean", TimeCrate::Chrono).path, "bool");
+        assert_eq!(
+            map_type("boolean", "boolean", TimeCrate::Chrono).path,
+            "bool"
+        );
     }
 
     // --- enum placeholder ---
 
     #[test]
     fn test_enum_placeholder() {
-        assert_eq!(map_type("enum", "enum('a','b','c')", TimeCrate::Chrono).path, "String");
+        assert_eq!(
+            map_type("enum", "enum('a','b','c')", TimeCrate::Chrono).path,
+            "String"
+        );
     }
 
     // --- case insensitive ---
@@ -350,14 +423,20 @@ mod tests {
 
     #[test]
     fn test_case_insensitive_tinyint1() {
-        assert_eq!(map_type("TINYINT", "TINYINT(1)", TimeCrate::Chrono).path, "bool");
+        assert_eq!(
+            map_type("TINYINT", "TINYINT(1)", TimeCrate::Chrono).path,
+            "bool"
+        );
     }
 
     // --- fallback ---
 
     #[test]
     fn test_geometry_fallback() {
-        assert_eq!(map_type("geometry", "geometry", TimeCrate::Chrono).path, "String");
+        assert_eq!(
+            map_type("geometry", "geometry", TimeCrate::Chrono).path,
+            "String"
+        );
     }
 
     #[test]
@@ -374,7 +453,10 @@ mod tests {
 
     #[test]
     fn test_resolve_enum_user_roles_role_type() {
-        assert_eq!(resolve_enum_type("user_roles", "role_type"), "UserRolesRoleType");
+        assert_eq!(
+            resolve_enum_type("user_roles", "role_type"),
+            "UserRolesRoleType"
+        );
     }
 
     #[test]
@@ -393,14 +475,22 @@ mod tests {
     fn test_timestamp_time_crate() {
         let rt = map_type("timestamp", "timestamp", TimeCrate::Time);
         assert_eq!(rt.path, "OffsetDateTime");
-        assert!(rt.needs_import.as_ref().unwrap().contains("time::OffsetDateTime"));
+        assert!(rt
+            .needs_import
+            .as_ref()
+            .unwrap()
+            .contains("time::OffsetDateTime"));
     }
 
     #[test]
     fn test_datetime_time_crate() {
         let rt = map_type("datetime", "datetime", TimeCrate::Time);
         assert_eq!(rt.path, "PrimitiveDateTime");
-        assert!(rt.needs_import.as_ref().unwrap().contains("time::PrimitiveDateTime"));
+        assert!(rt
+            .needs_import
+            .as_ref()
+            .unwrap()
+            .contains("time::PrimitiveDateTime"));
     }
 
     #[test]

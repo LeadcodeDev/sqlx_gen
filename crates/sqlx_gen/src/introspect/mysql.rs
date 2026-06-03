@@ -59,7 +59,19 @@ async fn fetch_tables(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableI
         placeholders.join(",")
     );
 
-    let mut q = sqlx::query_as::<_, (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, u32, Vec<u8>)>(&query);
+    let mut q = sqlx::query_as::<
+        _,
+        (
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            u32,
+            Vec<u8>,
+        ),
+    >(&query);
     for schema in schemas {
         q = q.bind(schema);
     }
@@ -253,9 +265,11 @@ fn resolve_view_nullability(
     // Build view column source lookup: (view_schema, view_name, column_name) -> Vec<is_nullable>
     let mut view_lookup: HashMap<(&str, &str, &str), Vec<bool>> = HashMap::new();
     for src in sources {
-        if let Some(&is_nullable) =
-            table_lookup.get(&(src.table_schema.as_str(), src.table_name.as_str(), src.column_name.as_str()))
-        {
+        if let Some(&is_nullable) = table_lookup.get(&(
+            src.table_schema.as_str(),
+            src.table_name.as_str(),
+            src.column_name.as_str(),
+        )) {
             view_lookup
                 .entry((&src.view_schema, &src.view_name, &src.column_name))
                 .or_default()
@@ -298,9 +312,11 @@ fn resolve_view_primary_keys(
     // Build view column source lookup: (view_schema, view_name, column_name) -> Vec<is_pk>
     let mut view_lookup: HashMap<(&str, &str, &str), Vec<bool>> = HashMap::new();
     for src in sources {
-        if let Some(&is_pk) =
-            table_lookup.get(&(src.table_schema.as_str(), src.table_name.as_str(), src.column_name.as_str()))
-        {
+        if let Some(&is_pk) = table_lookup.get(&(
+            src.table_schema.as_str(),
+            src.table_name.as_str(),
+            src.column_name.as_str(),
+        )) {
             view_lookup
                 .entry((&src.view_schema, &src.view_name, &src.column_name))
                 .or_default()
@@ -407,10 +423,7 @@ mod tests {
 
     #[test]
     fn test_parse_with_spaces() {
-        assert_eq!(
-            parse_enum_variants("enum( 'a' , 'b' )"),
-            vec!["a", "b"]
-        );
+        assert_eq!(parse_enum_variants("enum( 'a' , 'b' )"), vec!["a", "b"]);
     }
 
     #[test]
@@ -467,10 +480,7 @@ mod tests {
 
     #[test]
     fn test_extract_enum_name_format() {
-        let tables = vec![make_table(
-            "users",
-            vec![make_col("status", "enum('a')")],
-        )];
+        let tables = vec![make_table("users", vec![make_col("status", "enum('a')")])];
         let enums = extract_enums(&tables);
         assert_eq!(enums[0].name, "users_status");
     }
@@ -514,10 +524,7 @@ mod tests {
     fn test_extract_non_enum_column_ignored() {
         let tables = vec![make_table(
             "users",
-            vec![
-                make_col("id", "int(11)"),
-                make_col("status", "enum('a')"),
-            ],
+            vec![make_col("id", "int(11)"), make_col("status", "enum('a')")],
         )];
         let enums = extract_enums(&tables);
         assert_eq!(enums.len(), 1);
@@ -644,11 +651,7 @@ mod tests {
 
     // ========== resolve_view_primary_keys ==========
 
-    fn make_table_with_pk(
-        schema: &str,
-        name: &str,
-        columns: Vec<(&str, bool)>,
-    ) -> TableInfo {
+    fn make_table_with_pk(schema: &str, name: &str, columns: Vec<(&str, bool)>) -> TableInfo {
         TableInfo {
             schema_name: schema.to_string(),
             name: name.to_string(),
@@ -671,7 +674,11 @@ mod tests {
 
     #[test]
     fn test_resolve_pk_column() {
-        let tables = vec![make_table_with_pk("db", "users", vec![("id", true), ("name", false)])];
+        let tables = vec![make_table_with_pk(
+            "db",
+            "users",
+            vec![("id", true), ("name", false)],
+        )];
         let mut views = vec![make_view("db", "my_view", vec!["id", "name"])];
         let sources = vec![
             make_source("db", "my_view", "db", "users", "id"),

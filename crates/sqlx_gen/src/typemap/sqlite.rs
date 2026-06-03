@@ -21,8 +21,12 @@ pub fn map_type(declared_type: &str, time_crate: TimeCrate) -> RustType {
     }
     if upper.contains("TIMESTAMP") || upper.contains("DATETIME") {
         return match time_crate {
-            TimeCrate::Chrono => RustType::with_import("NaiveDateTime", "use chrono::NaiveDateTime;"),
-            TimeCrate::Time => RustType::with_import("PrimitiveDateTime", "use time::PrimitiveDateTime;"),
+            TimeCrate::Chrono => {
+                RustType::with_import("NaiveDateTime", "use chrono::NaiveDateTime;")
+            }
+            TimeCrate::Time => {
+                RustType::with_import("PrimitiveDateTime", "use time::PrimitiveDateTime;")
+            }
         };
     }
     if upper.contains("DATE") {
@@ -194,14 +198,22 @@ mod tests {
     fn test_timestamp_time_crate() {
         let rt = map_type("TIMESTAMP", TimeCrate::Time);
         assert_eq!(rt.path, "PrimitiveDateTime");
-        assert!(rt.needs_import.as_ref().unwrap().contains("time::PrimitiveDateTime"));
+        assert!(rt
+            .needs_import
+            .as_ref()
+            .unwrap()
+            .contains("time::PrimitiveDateTime"));
     }
 
     #[test]
     fn test_datetime_time_crate() {
         let rt = map_type("DATETIME", TimeCrate::Time);
         assert_eq!(rt.path, "PrimitiveDateTime");
-        assert!(rt.needs_import.as_ref().unwrap().contains("time::PrimitiveDateTime"));
+        assert!(rt
+            .needs_import
+            .as_ref()
+            .unwrap()
+            .contains("time::PrimitiveDateTime"));
     }
 
     #[test]

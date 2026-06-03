@@ -49,11 +49,10 @@ async fn fetch_tables(pool: &SqlitePool) -> Result<Vec<TableInfo>> {
 }
 
 async fn fetch_views(pool: &SqlitePool) -> Result<Vec<TableInfo>> {
-    let view_names: Vec<(String,)> = sqlx::query_as(
-        "SELECT name FROM sqlite_master WHERE type = 'view' ORDER BY name",
-    )
-    .fetch_all(pool)
-    .await?;
+    let view_names: Vec<(String,)> =
+        sqlx::query_as("SELECT name FROM sqlite_master WHERE type = 'view' ORDER BY name")
+            .fetch_all(pool)
+            .await?;
 
     let mut views = Vec::new();
 
@@ -100,7 +99,10 @@ fn resolve_view_nullability(views: &mut [TableInfo], tables: &[TableInfo]) {
     let mut col_lookup: HashMap<&str, Vec<bool>> = HashMap::new();
     for table in tables {
         for col in &table.columns {
-            col_lookup.entry(&col.name).or_default().push(col.is_nullable);
+            col_lookup
+                .entry(&col.name)
+                .or_default()
+                .push(col.is_nullable);
         }
     }
 
@@ -124,7 +126,10 @@ fn resolve_view_primary_keys(views: &mut [TableInfo], tables: &[TableInfo]) {
     let mut col_lookup: HashMap<&str, Vec<bool>> = HashMap::new();
     for table in tables {
         for col in &table.columns {
-            col_lookup.entry(&col.name).or_default().push(col.is_primary_key);
+            col_lookup
+                .entry(&col.name)
+                .or_default()
+                .push(col.is_primary_key);
         }
     }
 
@@ -257,7 +262,10 @@ mod tests {
 
     #[test]
     fn test_resolve_pk_unique_match() {
-        let tables = vec![make_table_with_pk("users", vec![("id", true), ("name", false)])];
+        let tables = vec![make_table_with_pk(
+            "users",
+            vec![("id", true), ("name", false)],
+        )];
         let mut views = vec![make_view("my_view", vec!["id", "name"])];
         resolve_view_primary_keys(&mut views, &tables);
         assert!(views[0].columns[0].is_primary_key);

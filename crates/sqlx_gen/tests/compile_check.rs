@@ -67,6 +67,7 @@ fn column(name: &str, udt: &str, nullable: bool, pk: bool, default: Option<&str>
         name: name.to_string(),
         data_type: udt.to_string(),
         udt_name: udt.to_string(),
+        udt_schema: None,
         is_nullable: nullable,
         is_primary_key: pk,
         ordinal_position: 0,

@@ -107,6 +107,7 @@ async fn fetch_tables(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableI
             name: col_name,
             data_type,
             udt_name: column_type,
+            udt_schema: None,
             is_nullable: nullable == "YES",
             is_primary_key: column_key == "PRI",
             ordinal_position: ordinal as i32,
@@ -181,6 +182,7 @@ async fn fetch_views(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableIn
             name: col_name,
             data_type,
             udt_name: column_type,
+            udt_schema: None,
             is_nullable: nullable == "YES",
             is_primary_key: false,
             ordinal_position: ordinal as i32,
@@ -402,6 +404,7 @@ mod tests {
             is_primary_key: false,
             ordinal_position: 0,
             schema_name: "test_db".to_string(),
+                udt_schema: None,
             column_default: None,
         }
     }
@@ -547,6 +550,7 @@ mod tests {
                     is_primary_key: false,
                     ordinal_position: i as i32,
                     schema_name: schema.to_string(),
+                udt_schema: None,
                     column_default: None,
                 })
                 .collect(),
@@ -572,6 +576,7 @@ mod tests {
                     is_primary_key: false,
                     ordinal_position: i as i32,
                     schema_name: schema.to_string(),
+                udt_schema: None,
                     column_default: None,
                 })
                 .collect(),
@@ -666,6 +671,7 @@ mod tests {
                     is_primary_key: is_pk,
                     ordinal_position: i as i32,
                     schema_name: schema.to_string(),
+                udt_schema: None,
                     column_default: None,
                 })
                 .collect(),

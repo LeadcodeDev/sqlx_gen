@@ -2,7 +2,7 @@ pub mod mysql;
 pub mod postgres;
 pub mod sqlite;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 #[allow(unused)]
 pub struct ColumnInfo {
     pub name: String,
@@ -10,6 +10,13 @@ pub struct ColumnInfo {
     pub data_type: String,
     /// Underlying type name: udt_name (PG), column_type (MySQL), declared type (SQLite)
     pub udt_name: String,
+    /// Schema in which `udt_name` is defined.
+    ///
+    /// Populated by the Postgres backend (e.g. `auth` for an `auth.role` enum
+    /// column, `pg_catalog` for builtins). `None` for MySQL/SQLite which have
+    /// no per-type namespacing. Used to disambiguate enums/composites/domains
+    /// when two schemas declare a type with the same name.
+    pub udt_schema: Option<String>,
     pub is_nullable: bool,
     pub is_primary_key: bool,
     pub ordinal_position: i32,

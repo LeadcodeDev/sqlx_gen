@@ -93,6 +93,21 @@ pub fn generate_composite(
         })
         .collect();
 
+    // Same rationale as enum_gen: an array of a composite type in PG needs
+    // PgHasArrayType for Vec<T> to decode at runtime.
+    let array_type_impl = if db_kind == DatabaseKind::Postgres {
+        let array_type_name = format!("_{}", composite.name);
+        quote! {
+            impl sqlx::postgres::PgHasArrayType for #struct_name {
+                fn array_type_info() -> sqlx::postgres::PgTypeInfo {
+                    sqlx::postgres::PgTypeInfo::with_name(#array_type_name)
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let tokens = quote! {
         #[doc = #doc]
         #[derive(#(#derive_tokens),*)]
@@ -101,6 +116,8 @@ pub fn generate_composite(
         pub struct #struct_name {
             #(#fields)*
         }
+
+        #array_type_impl
     };
 
     (tokens, imports)
@@ -181,6 +198,18 @@ mod tests {
         let c = make_composite("geo_point", vec![make_field("x", "float8", false)]);
         let code = gen(&c);
         assert!(code.contains("sqlx(type_name = \"geo_point\")"));
+    }
+
+    #[test]
+    fn test_postgres_emits_pg_has_array_type_impl() {
+        let c = make_composite("address", vec![make_field("street", "text", false)]);
+        let code = gen(&c);
+        assert!(
+            code.contains("impl sqlx::postgres::PgHasArrayType for Address"),
+            "must impl PgHasArrayType so Vec<Address> works, got:\n{}",
+            code
+        );
+        assert!(code.contains("\"_address\""));
     }
 
     #[test]

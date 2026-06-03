@@ -1,5 +1,3 @@
-use heck::ToUpperCamelCase;
-
 use super::RustType;
 use crate::cli::TimeCrate;
 use crate::introspect::SchemaInfo;
@@ -53,38 +51,64 @@ pub fn is_builtin(udt_name: &str) -> bool {
 }
 
 pub fn map_type(udt_name: &str, schema_info: &SchemaInfo, time_crate: TimeCrate) -> RustType {
+    map_type_qualified(udt_name, None, schema_info, time_crate)
+}
+
+// Shared with the rest of codegen — see codegen::rust_type_name_for.
+use crate::codegen::rust_type_name_for as rust_type_name_inner;
+
+fn rust_type_name(schema: &str, name: &str, schema_info: &SchemaInfo) -> String {
+    rust_type_name_inner(schema_info, schema, name)
+}
+
+/// Map a PG type name to a Rust type, respecting `udt_schema` when present so
+/// that two schemas declaring the same name (e.g. `auth.role` vs
+/// `billing.role`) resolve to distinct Rust idents.
+pub fn map_type_qualified(
+    udt_name: &str,
+    udt_schema: Option<&str>,
+    schema_info: &SchemaInfo,
+    time_crate: TimeCrate,
+) -> RustType {
     // Handle array types: PG's information_schema may report them either as
     // `_int4` (information_schema.columns.udt_name) or `integer[]`
     // (pg_catalog.format_type). Both should produce Vec<T>.
     if let Some(inner) = udt_name.strip_prefix('_') {
-        let inner_type = map_type(inner, schema_info, time_crate);
+        let inner_type = map_type_qualified(inner, udt_schema, schema_info, time_crate);
         return inner_type.wrap_vec();
     }
     if let Some(inner) = udt_name.strip_suffix("[]") {
-        let inner_type = map_type(inner.trim(), schema_info, time_crate);
+        let inner_type = map_type_qualified(inner.trim(), udt_schema, schema_info, time_crate);
         return inner_type.wrap_vec();
     }
 
-    // Check if it's a known enum
-    if schema_info.enums.iter().any(|e| e.name == udt_name) {
-        let name = udt_name.to_upper_camel_case();
+    // Schema-aware enum lookup. When udt_schema is provided we restrict to
+    // exact (schema, name) matches first; otherwise we fall back to the
+    // first name match so that legacy callers (and synthetic test fixtures)
+    // keep working.
+    let enum_match = schema_info.enums.iter().find(|e| {
+        e.name == udt_name && udt_schema.map(|s| s == e.schema_name).unwrap_or(true)
+    });
+    if let Some(e) = enum_match {
+        let name = rust_type_name(&e.schema_name, &e.name, schema_info);
         return RustType::with_import(&name, &format!("use super::types::{};", name));
     }
 
-    // Check if it's a known composite type
-    if schema_info
-        .composite_types
-        .iter()
-        .any(|c| c.name == udt_name)
-    {
-        let name = udt_name.to_upper_camel_case();
+    let composite_match = schema_info.composite_types.iter().find(|c| {
+        c.name == udt_name && udt_schema.map(|s| s == c.schema_name).unwrap_or(true)
+    });
+    if let Some(c) = composite_match {
+        let name = rust_type_name(&c.schema_name, &c.name, schema_info);
         return RustType::with_import(&name, &format!("use super::types::{};", name));
     }
 
-    // Check if it's a known domain
-    if let Some(domain) = schema_info.domains.iter().find(|d| d.name == udt_name) {
-        // Map to the domain's base type
-        return map_type(&domain.base_type, schema_info, time_crate);
+    let domain_match = schema_info.domains.iter().find(|d| {
+        d.name == udt_name && udt_schema.map(|s| s == d.schema_name).unwrap_or(true)
+    });
+    if let Some(domain) = domain_match {
+        // Map to the domain's base type — base type lives in pg_catalog so
+        // schema is irrelevant for the recursive lookup.
+        return map_type_qualified(&domain.base_type, None, schema_info, time_crate);
     }
 
     match udt_name {

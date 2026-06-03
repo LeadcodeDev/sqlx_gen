@@ -316,6 +316,31 @@ mod tests {
     }
 
     #[test]
+    fn test_mysql_inline_enum_emits_rename_for_lowercase_variants() {
+        // Inline MySQL ENUM('active', 'inactive') → Rust variants are PascalCase
+        // and need #[sqlx(rename)] so encode/decode hits the SQL text values.
+        let e = make_enum("status", vec!["active", "inactive"]);
+        let code = gen(&e, DatabaseKind::Mysql);
+        assert!(
+            code.contains("sqlx(rename = \"active\")"),
+            "MySQL inline ENUM variant must carry rename for round-trip:\n{}",
+            code
+        );
+        assert!(code.contains("sqlx(rename = \"inactive\")"));
+        // type_name does NOT exist for MySQL — only PG-native enums need it.
+        assert!(!code.contains("type_name"));
+    }
+
+    #[test]
+    fn test_mysql_inline_enum_preserves_case_sensitive_variants() {
+        let e = make_enum("priority", vec!["LOW", "HIGH"]);
+        let code = gen(&e, DatabaseKind::Mysql);
+        // PascalCase("LOW") = "Low" → rename required so SQL sees "LOW"
+        assert!(code.contains("sqlx(rename = \"LOW\")"));
+        assert!(code.contains("sqlx(rename = \"HIGH\")"));
+    }
+
+    #[test]
     fn test_mysql_no_type_name() {
         let e = make_enum("status", vec!["a"]);
         let code = gen(&e, DatabaseKind::Mysql);

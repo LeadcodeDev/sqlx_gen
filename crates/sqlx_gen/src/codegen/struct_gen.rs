@@ -218,7 +218,7 @@ mod tests {
     fn gen(table: &TableInfo) -> String {
         let schema = SchemaInfo::default();
         let (tokens, _) = generate_struct(table, DatabaseKind::Postgres, &schema, &[], &HashMap::new(), false, TimeCrate::Chrono);
-        parse_and_format(&tokens)
+        parse_and_format(&tokens).unwrap()
     }
 
     fn gen_with(
@@ -229,7 +229,7 @@ mod tests {
         overrides: &HashMap<String, String>,
     ) -> (String, BTreeSet<String>) {
         let (tokens, imports) = generate_struct(table, db, schema, derives, overrides, false, TimeCrate::Chrono);
-        (parse_and_format(&tokens), imports)
+        (parse_and_format(&tokens).unwrap(), imports)
     }
 
     // --- basic structure ---

@@ -136,7 +136,7 @@ mod tests {
     fn gen(composite: &CompositeTypeInfo) -> String {
         let schema = SchemaInfo::default();
         let (tokens, _) = generate_composite(composite, DatabaseKind::Postgres, &schema, &[], &HashMap::new(), TimeCrate::Chrono);
-        parse_and_format(&tokens)
+        parse_and_format(&tokens).unwrap()
     }
 
     fn gen_with(
@@ -146,7 +146,7 @@ mod tests {
     ) -> (String, BTreeSet<String>) {
         let schema = SchemaInfo::default();
         let (tokens, imports) = generate_composite(composite, DatabaseKind::Postgres, &schema, derives, overrides, TimeCrate::Chrono);
-        (parse_and_format(&tokens), imports)
+        (parse_and_format(&tokens).unwrap(), imports)
     }
 
     // --- basic structure ---
@@ -193,7 +193,7 @@ mod tests {
         };
         let schema = SchemaInfo::default();
         let (tokens, _) = generate_composite(&c, DatabaseKind::Postgres, &schema, &[], &HashMap::new(), TimeCrate::Chrono);
-        let code = parse_and_format(&tokens);
+        let code = parse_and_format(&tokens).unwrap();
         assert!(code.contains("sqlx(type_name = \"point\")"),
             "type_name must be unqualified for sqlx 0.8, got:\n{}", code);
         assert!(!code.contains("\"geo.point\""));

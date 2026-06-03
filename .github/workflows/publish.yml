@@ -13,12 +13,17 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Verify tag matches Cargo.toml version
+      - name: Verify tag matches workspace version
         run: |
-          CARGO_VERSION=$(grep '^version' crates/sqlx_gen/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          # Version is centralized in the root [workspace.package] block;
+          # individual crates inherit via `version.workspace = true`.
+          CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name=="sqlx-gen") | .version')
           TAG_VERSION=${GITHUB_REF#refs/tags/}
+          echo "Cargo workspace version: $CARGO_VERSION"
+          echo "Tag version: $TAG_VERSION"
           if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
-            echo "Tag $TAG_VERSION does not match Cargo.toml version $CARGO_VERSION"
+            echo "::error::Tag $TAG_VERSION does not match workspace version $CARGO_VERSION"
             exit 1
           fi
 

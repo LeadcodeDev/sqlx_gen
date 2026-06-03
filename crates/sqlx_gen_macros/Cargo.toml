@@ -1,13 +1,13 @@
 [package]
 name = "sqlx-gen-macros"
-version = "0.5.5"
-edition = "2021"
-rust-version = "1.75"
-description = "No-op attribute macros for sqlx-gen generated code"
-license = "MIT"
-repository = "https://github.com/LeadcodeDev/sqlx-gen"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 keywords = ["sqlx", "codegen", "macros"]
-categories = ["database", "development-tools"]
+categories.workspace = true
+description = "No-op attribute macros for sqlx-gen generated code"
 
 [lib]
 proc-macro = true

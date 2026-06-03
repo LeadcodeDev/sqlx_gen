@@ -83,6 +83,23 @@ pub fn generate_enum(
         quote! {}
     };
 
+    // Postgres arrays of an enum (`my_enum[]`) require an explicit
+    // PgHasArrayType impl on the Rust side; otherwise sqlx fails at decode
+    // with "unsupported type _my_enum". The array type name in PG is the
+    // base type prefixed with '_'.
+    let array_type_impl = if db_kind == DatabaseKind::Postgres {
+        let array_type_name = format!("_{}", enum_info.name);
+        quote! {
+            impl sqlx::postgres::PgHasArrayType for #enum_name {
+                fn array_type_info() -> sqlx::postgres::PgTypeInfo {
+                    sqlx::postgres::PgTypeInfo::with_name(#array_type_name)
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let schema_name_str = &enum_info.schema_name;
     let enum_name_str = &enum_info.name;
 
@@ -96,6 +113,8 @@ pub fn generate_enum(
         }
 
         #default_impl
+
+        #array_type_impl
     };
 
     (tokens, imports)
@@ -179,6 +198,36 @@ mod tests {
         let e = make_enum("user_status", vec!["a"]);
         let code = gen(&e, DatabaseKind::Postgres);
         assert!(code.contains("sqlx(type_name = \"user_status\")"));
+    }
+
+    #[test]
+    fn test_postgres_emits_pg_has_array_type_impl() {
+        let e = make_enum("status", vec!["a", "b"]);
+        let code = gen(&e, DatabaseKind::Postgres);
+        assert!(
+            code.contains("impl sqlx::postgres::PgHasArrayType for Status"),
+            "must impl PgHasArrayType so Vec<Status> works, got:\n{}",
+            code
+        );
+        assert!(
+            code.contains("\"_status\""),
+            "array type name must be '_<enum_name>', got:\n{}",
+            code
+        );
+    }
+
+    #[test]
+    fn test_mysql_does_not_emit_pg_has_array_type_impl() {
+        let e = make_enum("status", vec!["a", "b"]);
+        let code = gen(&e, DatabaseKind::Mysql);
+        assert!(!code.contains("PgHasArrayType"));
+    }
+
+    #[test]
+    fn test_sqlite_does_not_emit_pg_has_array_type_impl() {
+        let e = make_enum("status", vec!["a", "b"]);
+        let code = gen(&e, DatabaseKind::Sqlite);
+        assert!(!code.contains("PgHasArrayType"));
     }
 
     #[test]

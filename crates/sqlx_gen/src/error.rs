@@ -9,6 +9,12 @@ pub enum Error {
         source: sqlx::Error,
     },
 
+    #[error("Permission denied while introspecting: {detail}. Check the DB user's privileges on information_schema / pg_catalog / sqlite_master.")]
+    PermissionDenied { detail: String },
+
+    #[error("Schema or relation not found: {detail}. Check `--schemas` and ensure the database contains the expected tables.")]
+    SchemaNotFound { detail: String },
+
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 
@@ -20,6 +26,35 @@ pub enum Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Inspect a [`sqlx::Error`] and, if it carries a SQLSTATE we know how to
+/// explain, return a richer [`Error`] variant. Otherwise the input is wrapped
+/// in [`Error::Database`] unchanged so callers can keep using `?`.
+pub fn contextualize_sqlx_error(err: sqlx::Error) -> Error {
+    use sqlx::Error as Sx;
+    let code: Option<String> = match &err {
+        Sx::Database(db) => db.code().map(|c| c.to_string()),
+        _ => None,
+    };
+    if let Some(code) = code {
+        // PG: 42501 insufficient_privilege; MySQL: 42000 / 28000.
+        // PG: 42P01 undefined_table, 3F000 invalid_schema_name; MySQL: 42S02.
+        match code.as_str() {
+            "42501" | "28000" => {
+                return Error::PermissionDenied {
+                    detail: err.to_string(),
+                };
+            }
+            "42P01" | "3F000" | "42S02" => {
+                return Error::SchemaNotFound {
+                    detail: err.to_string(),
+                };
+            }
+            _ => {}
+        }
+    }
+    Error::Database(err)
+}
 
 /// Redact `user:password@host` → `user:****@host` in a database URL so it can
 /// be embedded in error messages and logs without leaking credentials.
@@ -91,5 +126,14 @@ mod tests {
     #[test]
     fn leaves_non_url_string_unchanged() {
         assert_eq!(redact_url("not-a-url"), "not-a-url");
+    }
+
+    #[test]
+    fn contextualize_non_database_error_wraps_unchanged() {
+        let err = sqlx::Error::PoolTimedOut;
+        match contextualize_sqlx_error(err) {
+            Error::Database(_) => {}
+            other => panic!("expected Database, got {:?}", other),
+        }
     }
 }

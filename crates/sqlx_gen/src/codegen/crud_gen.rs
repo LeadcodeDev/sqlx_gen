@@ -1517,7 +1517,7 @@ mod tests {
     #[test]
     fn test_get_all_sql() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("SELECT * FROM \"users\""));
+        assert!(code.contains("SELECT * FROM users"));
     }
 
     // --- paginate ---
@@ -1569,7 +1569,7 @@ mod tests {
     #[test]
     fn test_paginate_count_sql() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("SELECT COUNT(*) FROM \"users\""));
+        assert!(code.contains("SELECT COUNT(*) FROM users"));
     }
 
     #[test]
@@ -1601,13 +1601,13 @@ mod tests {
     #[test]
     fn test_get_where_pk_pg() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("WHERE \"id\" = $1"));
+        assert!(code.contains("WHERE id = $1"));
     }
 
     #[test]
     fn test_get_where_pk_mysql() {
         let code = gen(&standard_entity(), DatabaseKind::Mysql);
-        assert!(code.contains("WHERE `id` = ?"));
+        assert!(code.contains("WHERE id = ?"));
     }
 
     // --- insert ---
@@ -1827,12 +1827,12 @@ mod tests {
     fn test_update_set_clause_uses_coalesce_pg() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
         assert!(
-            code.contains("COALESCE($1, \"name\")"),
+            code.contains("COALESCE($1, name)"),
             "Expected COALESCE for name:\n{}",
             code
         );
         assert!(
-            code.contains("COALESCE($2, \"email\")"),
+            code.contains("COALESCE($2, email)"),
             "Expected COALESCE for email:\n{}",
             code
         );
@@ -1841,7 +1841,7 @@ mod tests {
     #[test]
     fn test_update_where_clause_pg() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("WHERE \"id\" = $3"));
+        assert!(code.contains("WHERE id = $3"));
     }
 
     #[test]
@@ -1855,12 +1855,12 @@ mod tests {
     fn test_update_set_clause_mysql() {
         let code = gen(&standard_entity(), DatabaseKind::Mysql);
         assert!(
-            code.contains("COALESCE(?, `name`)"),
+            code.contains("COALESCE(?, name)"),
             "Expected COALESCE for MySQL:\n{}",
             code
         );
         assert!(
-            code.contains("COALESCE(?, `email`)"),
+            code.contains("COALESCE(?, email)"),
             "Expected COALESCE for email in MySQL:\n{}",
             code
         );
@@ -1870,7 +1870,7 @@ mod tests {
     fn test_update_set_clause_sqlite() {
         let code = gen(&standard_entity(), DatabaseKind::Sqlite);
         assert!(
-            code.contains("COALESCE(?, \"name\")"),
+            code.contains("COALESCE(?, name)"),
             "Expected COALESCE for SQLite:\n{}",
             code
         );
@@ -1936,9 +1936,9 @@ mod tests {
     #[test]
     fn test_overwrite_set_clause_pg() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("\"name\" = $1,"));
-        assert!(code.contains("\"email\" = $2"));
-        assert!(code.contains("WHERE \"id\" = $3"));
+        assert!(code.contains("name = $1,"));
+        assert!(code.contains("email = $2"));
+        assert!(code.contains("WHERE id = $3"));
     }
 
     #[test]
@@ -2003,8 +2003,8 @@ mod tests {
     #[test]
     fn test_delete_where_pk() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("DELETE FROM \"users\""));
-        assert!(code.contains("WHERE \"id\" = $1"));
+        assert!(code.contains("DELETE FROM users"));
+        assert!(code.contains("WHERE id = $1"));
     }
 
     #[test]
@@ -2766,9 +2766,7 @@ mod tests {
             code
         );
         assert!(
-            code.contains(
-                "INSERT INTO \"analysis\".\"analysis__record\" (\"record_id\", \"analysis_id\")"
-            ),
+            code.contains("INSERT INTO analysis.analysis__record (record_id, analysis_id)"),
             "Expected quoted INSERT INTO clause:\n{}",
             code
         );
@@ -2813,12 +2811,12 @@ mod tests {
             code
         );
         assert!(
-            code.contains("DELETE FROM \"analysis\".\"analysis__record\""),
+            code.contains("DELETE FROM analysis.analysis__record"),
             "Expected DELETE clause:\n{}",
             code
         );
         assert!(
-            code.contains("WHERE \"record_id\" = $1 AND \"analysis_id\" = $2"),
+            code.contains("WHERE record_id = $1 AND analysis_id = $2"),
             "Expected WHERE clause:\n{}",
             code
         );
@@ -2833,7 +2831,7 @@ mod tests {
             code
         );
         assert!(
-            code.contains("WHERE \"record_id\" = $1 AND \"analysis_id\" = $2"),
+            code.contains("WHERE record_id = $1 AND analysis_id = $2"),
             "Expected WHERE clause with both PK columns:\n{}",
             code
         );
@@ -2870,7 +2868,7 @@ mod tests {
             code
         );
         assert!(
-            code.contains("WHERE `order_id` = ? AND `product_id` = ?"),
+            code.contains("WHERE order_id = ? AND product_id = ?"),
             "SELECT must use bound composite PK values, got:\n{}",
             code
         );

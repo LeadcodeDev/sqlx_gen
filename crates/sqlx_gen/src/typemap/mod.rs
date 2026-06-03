@@ -89,6 +89,7 @@ mod tests {
             is_primary_key: false,
             ordinal_position: 0,
             schema_name: "public".to_string(),
+                udt_schema: None,
             column_default: None,
         }
     }

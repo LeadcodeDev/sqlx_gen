@@ -191,6 +191,7 @@ async fn fetch_columns(pool: &SqlitePool, table_name: &str) -> Result<Vec<Column
                 name,
                 data_type: upper.clone(),
                 udt_name: upper,
+                udt_schema: None,
                 is_nullable: !notnull,
                 is_primary_key: pk > 0,
                 ordinal_position: cid,
@@ -274,6 +275,7 @@ mod tests {
                     is_primary_key: false,
                     ordinal_position: i as i32,
                     schema_name: "main".to_string(),
+                udt_schema: None,
                     column_default: None,
                 })
                 .collect(),
@@ -295,6 +297,7 @@ mod tests {
                     is_primary_key: false,
                     ordinal_position: i as i32,
                     schema_name: "main".to_string(),
+                udt_schema: None,
                     column_default: None,
                 })
                 .collect(),
@@ -363,6 +366,7 @@ mod tests {
                     is_primary_key: is_pk,
                     ordinal_position: i as i32,
                     schema_name: "main".to_string(),
+                udt_schema: None,
                     column_default: None,
                 })
                 .collect(),

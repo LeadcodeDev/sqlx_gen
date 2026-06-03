@@ -48,6 +48,7 @@ async fn fetch_tables(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo
             String,
             String,
             String,
+            String,
             i32,
             bool,
             Option<String>,
@@ -60,6 +61,7 @@ async fn fetch_tables(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo
             c.column_name,
             c.data_type,
             COALESCE(c.udt_name, c.data_type) as udt_name,
+            COALESCE(c.udt_schema, '') as udt_schema,
             c.is_nullable,
             c.ordinal_position,
             CASE WHEN kcu.column_name IS NOT NULL THEN true ELSE false END AS is_primary_key,
@@ -88,8 +90,18 @@ async fn fetch_tables(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo
     let mut tables: Vec<TableInfo> = Vec::new();
     let mut current_key: Option<(String, String)> = None;
 
-    for (schema, table, col_name, data_type, udt_name, nullable, ordinal, is_pk, column_default) in
-        rows
+    for (
+        schema,
+        table,
+        col_name,
+        data_type,
+        udt_name,
+        udt_schema,
+        nullable,
+        ordinal,
+        is_pk,
+        column_default,
+    ) in rows
     {
         let key = (schema.clone(), table.clone());
         if current_key.as_ref() != Some(&key) {
@@ -109,6 +121,11 @@ async fn fetch_tables(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo
             name: col_name,
             data_type,
             udt_name,
+            udt_schema: if udt_schema.is_empty() {
+                None
+            } else {
+                Some(udt_schema)
+            },
             is_nullable: nullable == "YES",
             is_primary_key: is_pk,
             ordinal_position: ordinal,
@@ -130,6 +147,7 @@ async fn fetch_views(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo>
             String,
             String,
             String,
+            String,
             i32,
             Option<String>,
         ),
@@ -141,6 +159,7 @@ async fn fetch_views(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo>
             c.column_name,
             c.data_type,
             COALESCE(c.udt_name, c.data_type) as udt_name,
+            COALESCE(c.udt_schema, '') as udt_schema,
             c.is_nullable,
             c.ordinal_position,
             c.column_default
@@ -160,7 +179,18 @@ async fn fetch_views(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo>
     let mut views: Vec<TableInfo> = Vec::new();
     let mut current_key: Option<(String, String)> = None;
 
-    for (schema, table, col_name, data_type, udt_name, nullable, ordinal, column_default) in rows {
+    for (
+        schema,
+        table,
+        col_name,
+        data_type,
+        udt_name,
+        udt_schema,
+        nullable,
+        ordinal,
+        column_default,
+    ) in rows
+    {
         let key = (schema.clone(), table.clone());
         if current_key.as_ref() != Some(&key) {
             current_key = Some(key);
@@ -179,6 +209,11 @@ async fn fetch_views(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo>
             name: col_name,
             data_type,
             udt_name,
+            udt_schema: if udt_schema.is_empty() {
+                None
+            } else {
+                Some(udt_schema)
+            },
             is_nullable: nullable == "YES",
             is_primary_key: false,
             ordinal_position: ordinal,
@@ -445,6 +480,7 @@ async fn fetch_composite_types(
             name: field_name,
             data_type: field_type.clone(),
             udt_name: field_type,
+            udt_schema: None,
             is_nullable: nullable == "YES",
             is_primary_key: false,
             ordinal_position: ordinal,
@@ -504,6 +540,7 @@ mod tests {
                     is_primary_key: false,
                     ordinal_position: i as i32,
                     schema_name: schema.to_string(),
+                udt_schema: None,
                     column_default: None,
                 })
                 .collect(),

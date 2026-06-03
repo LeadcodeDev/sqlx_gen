@@ -97,7 +97,7 @@ async fn run_entities(args: EntitiesArgs) -> Result<()> {
         &type_overrides,
         args.single_file,
         args.time_crate,
-    );
+    )?;
 
     writer::write_files(&files, &args.output_dir, args.single_file, args.dry_run)?;
 
@@ -150,7 +150,7 @@ fn run_crud(args: CrudArgs) -> Result<()> {
     );
 
     let tab_spaces = codegen::detect_tab_spaces(&args.output_dir);
-    let code = codegen::format_tokens_with_imports_and_tab_spaces(&tokens, &imports, tab_spaces);
+    let code = codegen::format_tokens_with_imports_and_tab_spaces(&tokens, &imports, tab_spaces)?;
 
     if args.dry_run {
         println!("{}", code);

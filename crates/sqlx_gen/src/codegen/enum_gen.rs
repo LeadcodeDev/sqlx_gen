@@ -117,7 +117,7 @@ mod tests {
 
     fn gen(info: &EnumInfo, db: DatabaseKind) -> String {
         let (tokens, _) = generate_enum(info, db, &[]);
-        parse_and_format(&tokens)
+        parse_and_format(&tokens).unwrap()
     }
 
     fn gen_with_derives(
@@ -126,7 +126,7 @@ mod tests {
         derives: &[String],
     ) -> (String, BTreeSet<String>) {
         let (tokens, imports) = generate_enum(info, db, derives);
-        (parse_and_format(&tokens), imports)
+        (parse_and_format(&tokens).unwrap(), imports)
     }
 
     // --- basic structure ---
@@ -192,7 +192,7 @@ mod tests {
             default_variant: None,
         };
         let (tokens, _) = generate_enum(&e, DatabaseKind::Postgres, &[]);
-        let code = parse_and_format(&tokens);
+        let code = parse_and_format(&tokens).unwrap();
         assert!(code.contains("sqlx(type_name = \"role\")"),
             "type_name must be unqualified for sqlx 0.8 compatibility, got:\n{}", code);
         assert!(!code.contains("\"auth.role\""),

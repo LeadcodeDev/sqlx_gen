@@ -252,9 +252,20 @@ pub fn generate_crud_from_parsed(
     if !is_view && methods.insert && (!non_pk_fields.is_empty() || !pk_fields.is_empty()) {
         let insert_params_ident = format_ident!("Insert{}Params", entity.struct_name);
 
-        // When all columns are PKs (e.g. junction tables), use pk_fields for insert
+        // Insert source fields:
+        // - Junction table (all-PK): use the PKs themselves so something gets inserted.
+        // - Composite PK (>1) with extra columns: include the PKs alongside non-PK
+        //   columns. Composite PKs are typically NOT auto-generated, so omitting
+        //   them would produce a NOT NULL violation. The MySQL branch below also
+        //   relies on the bound PK values when LAST_INSERT_ID is not applicable.
+        // - Single PK + extras: keep the legacy behaviour (exclude the PK and
+        //   assume it's SERIAL/AUTO_INCREMENT).
         let insert_source_fields: Vec<&ParsedField> = if non_pk_fields.is_empty() {
             pk_fields.clone()
+        } else if pk_fields.len() > 1 {
+            let mut combined: Vec<&ParsedField> = pk_fields.clone();
+            combined.extend(non_pk_fields.iter().copied());
+            combined
         } else {
             non_pk_fields.clone()
         };
@@ -983,18 +994,42 @@ fn build_insert_method_parsed(
                     "SELECT *\nFROM {}\nWHERE {}",
                     table_name, pk_where
                 ));
-                let last_insert_id_sql = raw_sql_lit("SELECT LAST_INSERT_ID() as id");
-                quote! {
-                    pub async fn insert(&self, params: &#insert_params_ident) -> Result<#entity_ident, sqlx::Error> {
-                        sqlx::query!(#sql_macro, #(#macro_args),*)
-                            .execute(&self.pool)
-                            .await?;
-                        let id = sqlx::query_scalar!(#last_insert_id_sql)
-                            .fetch_one(&self.pool)
-                            .await?;
-                        sqlx::query_as!(#entity_ident, #select_sql, id)
-                            .fetch_one(&self.pool)
-                            .await
+                if pk_fields.len() > 1 {
+                    // Composite PK → the user supplied every PK column in
+                    // params, so SELECT by them directly. LAST_INSERT_ID is
+                    // meaningless for composite keys (only the first
+                    // auto-increment column populates it, if any).
+                    let pk_macro_args: Vec<TokenStream> = pk_fields
+                        .iter()
+                        .map(|f| {
+                            let name = format_ident!("{}", f.rust_name);
+                            quote! { params.#name }
+                        })
+                        .collect();
+                    quote! {
+                        pub async fn insert(&self, params: &#insert_params_ident) -> Result<#entity_ident, sqlx::Error> {
+                            sqlx::query!(#sql_macro, #(#macro_args),*)
+                                .execute(&self.pool)
+                                .await?;
+                            sqlx::query_as!(#entity_ident, #select_sql, #(#pk_macro_args),*)
+                                .fetch_one(&self.pool)
+                                .await
+                        }
+                    }
+                } else {
+                    let last_insert_id_sql = raw_sql_lit("SELECT LAST_INSERT_ID() as id");
+                    quote! {
+                        pub async fn insert(&self, params: &#insert_params_ident) -> Result<#entity_ident, sqlx::Error> {
+                            sqlx::query!(#sql_macro, #(#macro_args),*)
+                                .execute(&self.pool)
+                                .await?;
+                            let id = sqlx::query_scalar!(#last_insert_id_sql)
+                                .fetch_one(&self.pool)
+                                .await?;
+                            sqlx::query_as!(#entity_ident, #select_sql, id)
+                                .fetch_one(&self.pool)
+                                .await
+                        }
                     }
                 }
             }
@@ -1017,20 +1052,42 @@ fn build_insert_method_parsed(
                     "SELECT *\nFROM {}\nWHERE {}",
                     table_name, pk_where
                 ));
-                let last_insert_id_sql = raw_sql_lit("SELECT LAST_INSERT_ID()");
-                quote! {
-                    pub async fn insert(&self, params: &#insert_params_ident) -> Result<#entity_ident, sqlx::Error> {
-                        sqlx::query(#sql)
-                            #(#binds)*
-                            .execute(&self.pool)
-                            .await?;
-                        let id = sqlx::query_scalar::<_, i64>(#last_insert_id_sql)
-                            .fetch_one(&self.pool)
-                            .await?;
-                        sqlx::query_as::<_, #entity_ident>(#select_sql)
-                            .bind(id)
-                            .fetch_one(&self.pool)
-                            .await
+                if pk_fields.len() > 1 {
+                    let pk_binds: Vec<TokenStream> = pk_fields
+                        .iter()
+                        .map(|f| {
+                            let name = format_ident!("{}", f.rust_name);
+                            quote! { .bind(&params.#name) }
+                        })
+                        .collect();
+                    quote! {
+                        pub async fn insert(&self, params: &#insert_params_ident) -> Result<#entity_ident, sqlx::Error> {
+                            sqlx::query(#sql)
+                                #(#binds)*
+                                .execute(&self.pool)
+                                .await?;
+                            sqlx::query_as::<_, #entity_ident>(#select_sql)
+                                #(#pk_binds)*
+                                .fetch_one(&self.pool)
+                                .await
+                        }
+                    }
+                } else {
+                    let last_insert_id_sql = raw_sql_lit("SELECT LAST_INSERT_ID()");
+                    quote! {
+                        pub async fn insert(&self, params: &#insert_params_ident) -> Result<#entity_ident, sqlx::Error> {
+                            sqlx::query(#sql)
+                                #(#binds)*
+                                .execute(&self.pool)
+                                .await?;
+                            let id = sqlx::query_scalar::<_, i64>(#last_insert_id_sql)
+                                .fetch_one(&self.pool)
+                                .await?;
+                            sqlx::query_as::<_, #entity_ident>(#select_sql)
+                                .bind(id)
+                                .fetch_one(&self.pool)
+                                .await
+                        }
                     }
                 }
             }
@@ -1144,27 +1201,54 @@ fn build_insert_many_transactionally_method(
                 "SELECT *\nFROM {}\nWHERE {}",
                 table_name, pk_where
             ));
-            let last_insert_id_sql = raw_sql_lit("SELECT LAST_INSERT_ID()");
 
-            quote! {
-                let mut tx = self.pool.begin().await?;
-                let mut results = Vec::with_capacity(entries.len());
-                for params in &entries {
-                    sqlx::query(#single_insert_sql)
-                        #(#single_binds)*
-                        .execute(&mut *tx)
-                        .await?;
-                    let id = sqlx::query_scalar::<_, i64>(#last_insert_id_sql)
-                        .fetch_one(&mut *tx)
-                        .await?;
-                    let row = sqlx::query_as::<_, #entity_ident>(#select_sql)
-                        .bind(id)
-                        .fetch_one(&mut *tx)
-                        .await?;
-                    results.push(row);
+            if pk_fields.len() > 1 {
+                let pk_binds: Vec<TokenStream> = pk_fields
+                    .iter()
+                    .map(|f| {
+                        let name = format_ident!("{}", f.rust_name);
+                        quote! { .bind(&params.#name) }
+                    })
+                    .collect();
+                quote! {
+                    let mut tx = self.pool.begin().await?;
+                    let mut results = Vec::with_capacity(entries.len());
+                    for params in &entries {
+                        sqlx::query(#single_insert_sql)
+                            #(#single_binds)*
+                            .execute(&mut *tx)
+                            .await?;
+                        let row = sqlx::query_as::<_, #entity_ident>(#select_sql)
+                            #(#pk_binds)*
+                            .fetch_one(&mut *tx)
+                            .await?;
+                        results.push(row);
+                    }
+                    tx.commit().await?;
+                    Ok(results)
                 }
-                tx.commit().await?;
-                Ok(results)
+            } else {
+                let last_insert_id_sql = raw_sql_lit("SELECT LAST_INSERT_ID()");
+                quote! {
+                    let mut tx = self.pool.begin().await?;
+                    let mut results = Vec::with_capacity(entries.len());
+                    for params in &entries {
+                        sqlx::query(#single_insert_sql)
+                            #(#single_binds)*
+                            .execute(&mut *tx)
+                            .await?;
+                        let id = sqlx::query_scalar::<_, i64>(#last_insert_id_sql)
+                            .fetch_one(&mut *tx)
+                            .await?;
+                        let row = sqlx::query_as::<_, #entity_ident>(#select_sql)
+                            .bind(id)
+                            .fetch_one(&mut *tx)
+                            .await?;
+                        results.push(row);
+                    }
+                    tx.commit().await?;
+                    Ok(results)
+                }
             }
         }
     };
@@ -2752,6 +2836,64 @@ mod tests {
             code.contains("WHERE \"record_id\" = $1 AND \"analysis_id\" = $2"),
             "Expected WHERE clause with both PK columns:\n{}",
             code
+        );
+    }
+
+    // --- composite PK + non-PK columns (MySQL) ---
+
+    fn composite_pk_with_extra() -> ParsedEntity {
+        ParsedEntity {
+            struct_name: "OrderItems".to_string(),
+            table_name: "order_items".to_string(),
+            schema_name: None,
+            is_view: false,
+            fields: vec![
+                make_field("order_id", "order_id", "i32", false, true),
+                make_field("product_id", "product_id", "i32", false, true),
+                make_field("qty", "qty", "i32", false, false),
+            ],
+            imports: vec![],
+        }
+    }
+
+    #[test]
+    fn test_mysql_composite_pk_insert_uses_select_not_last_insert_id() {
+        let code = gen(&composite_pk_with_extra(), DatabaseKind::Mysql);
+        assert!(
+            !code.contains("LAST_INSERT_ID"),
+            "composite PK insert must not use LAST_INSERT_ID(), got:\n{}",
+            code
+        );
+        assert!(
+            code.contains("SELECT *"),
+            "must SELECT the row back after INSERT, got:\n{}",
+            code
+        );
+        assert!(
+            code.contains("WHERE `order_id` = ? AND `product_id` = ?"),
+            "SELECT must use bound composite PK values, got:\n{}",
+            code
+        );
+    }
+
+    #[test]
+    fn test_mysql_composite_pk_includes_pks_in_insert_params() {
+        let code = gen(&composite_pk_with_extra(), DatabaseKind::Mysql);
+        assert!(
+            code.contains("pub order_id"),
+            "InsertParams must expose composite PK column order_id, got:\n{}",
+            code
+        );
+        assert!(code.contains("pub product_id"));
+        assert!(code.contains("pub qty"));
+    }
+
+    #[test]
+    fn test_mysql_single_pk_insert_still_uses_last_insert_id() {
+        let code = gen(&standard_entity(), DatabaseKind::Mysql);
+        assert!(
+            code.contains("LAST_INSERT_ID"),
+            "single-PK MySQL insert should still rely on LAST_INSERT_ID()"
         );
     }
 

@@ -85,7 +85,12 @@ async fn fetch_tables(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo
                 columns: Vec::new(),
             });
         }
-        tables.last_mut().unwrap().columns.push(ColumnInfo {
+        let last = tables.last_mut().ok_or_else(|| {
+            crate::error::Error::Config(
+                "Internal sqlx-gen bug: tables vector empty after push".to_string(),
+            )
+        })?;
+        last.columns.push(ColumnInfo {
             name: col_name,
             data_type,
             udt_name,
@@ -138,7 +143,12 @@ async fn fetch_views(pool: &PgPool, schemas: &[String]) -> Result<Vec<TableInfo>
                 columns: Vec::new(),
             });
         }
-        views.last_mut().unwrap().columns.push(ColumnInfo {
+        let last = views.last_mut().ok_or_else(|| {
+            crate::error::Error::Config(
+                "Internal sqlx-gen bug: views vector empty after push".to_string(),
+            )
+        })?;
+        last.columns.push(ColumnInfo {
             name: col_name,
             data_type,
             udt_name,
@@ -352,7 +362,12 @@ async fn fetch_enums(pool: &PgPool, schemas: &[String]) -> Result<Vec<EnumInfo>>
                 default_variant: None,
             });
         }
-        enums.last_mut().unwrap().variants.push(variant);
+        let last = enums.last_mut().ok_or_else(|| {
+            crate::error::Error::Config(
+                "Internal sqlx-gen bug: enums vector empty after push".to_string(),
+            )
+        })?;
+        last.variants.push(variant);
     }
 
     Ok(enums)
@@ -402,7 +417,12 @@ async fn fetch_composite_types(
                 fields: Vec::new(),
             });
         }
-        composites.last_mut().unwrap().fields.push(ColumnInfo {
+        let last = composites.last_mut().ok_or_else(|| {
+            crate::error::Error::Config(
+                "Internal sqlx-gen bug: composites vector empty after push".to_string(),
+            )
+        })?;
+        last.fields.push(ColumnInfo {
             name: field_name,
             data_type: field_type.clone(),
             udt_name: field_type,

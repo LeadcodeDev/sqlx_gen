@@ -2,6 +2,13 @@ use std::io;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("Database connection failed ({redacted_url}): {source}")]
+    Connection {
+        redacted_url: String,
+        #[source]
+        source: sqlx::Error,
+    },
+
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 
@@ -13,3 +20,73 @@ pub enum Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Redact `user:password@host` → `user:****@host` in a database URL so it can
+/// be embedded in error messages and logs without leaking credentials.
+pub fn redact_url(url: &str) -> String {
+    let (scheme, rest) = match url.split_once("://") {
+        Some(pair) => pair,
+        None => return url.to_string(),
+    };
+    let (userinfo, host_part) = match rest.split_once('@') {
+        Some(pair) => pair,
+        None => return url.to_string(),
+    };
+    let redacted_userinfo = match userinfo.split_once(':') {
+        Some((user, _pw)) => format!("{}:****", user),
+        None => userinfo.to_string(),
+    };
+    format!("{}://{}@{}", scheme, redacted_userinfo, host_part)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redacts_password_in_postgres_url() {
+        assert_eq!(
+            redact_url("postgres://alice:s3cret@localhost:5432/db"),
+            "postgres://alice:****@localhost:5432/db"
+        );
+    }
+
+    #[test]
+    fn redacts_password_in_mysql_url() {
+        assert_eq!(
+            redact_url("mysql://root:hunter2@db:3306/app"),
+            "mysql://root:****@db:3306/app"
+        );
+    }
+
+    #[test]
+    fn redacts_password_in_postgresql_url() {
+        assert_eq!(
+            redact_url("postgresql://u:p@h/d"),
+            "postgresql://u:****@h/d"
+        );
+    }
+
+    #[test]
+    fn leaves_passwordless_sqlite_url_unchanged() {
+        assert_eq!(redact_url("sqlite:///tmp/test.db"), "sqlite:///tmp/test.db");
+    }
+
+    #[test]
+    fn leaves_no_userinfo_unchanged() {
+        assert_eq!(redact_url("postgres://localhost/db"), "postgres://localhost/db");
+    }
+
+    #[test]
+    fn leaves_userinfo_without_password_unchanged() {
+        assert_eq!(
+            redact_url("postgres://alice@localhost/db"),
+            "postgres://alice@localhost/db"
+        );
+    }
+
+    #[test]
+    fn leaves_non_url_string_unchanged() {
+        assert_eq!(redact_url("not-a-url"), "not-a-url");
+    }
+}

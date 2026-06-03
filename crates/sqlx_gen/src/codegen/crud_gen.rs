@@ -1159,6 +1159,12 @@ fn build_insert_many_transactionally_method(
             &self,
             entries: Vec<#insert_params_ident>,
         ) -> Result<Vec<#entity_ident>, sqlx::Error> {
+            // Short-circuit empty batches: avoids opening a transaction and
+            // sending a zero-row INSERT (or a "VALUES " with no tuples, which
+            // Postgres rejects as a syntax error).
+            if entries.is_empty() {
+                return Ok(Vec::new());
+            }
             #body
         }
     }

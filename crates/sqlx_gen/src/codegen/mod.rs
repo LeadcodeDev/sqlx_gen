@@ -72,6 +72,53 @@ pub fn is_default_schema(schema: &str) -> bool {
     DEFAULT_SCHEMAS.contains(&schema)
 }
 
+/// Compute the Rust identifier for an enum / composite / domain.
+///
+/// When the same SQL name is declared in more than one schema (e.g. both
+/// `auth.role` and `billing.role` exist), the non-default-schema variants get
+/// a `SchemaName` PascalCase prefix to avoid Rust-level identifier collisions.
+/// Otherwise the bare PascalCase of the SQL name is used.
+pub fn rust_type_name_for(schema_info: &SchemaInfo, schema: &str, name: &str) -> String {
+    use heck::ToUpperCamelCase;
+    if type_name_has_cross_schema_collision(schema_info, name) && !is_default_schema(schema) {
+        format!(
+            "{}{}",
+            schema.to_upper_camel_case(),
+            name.to_upper_camel_case()
+        )
+    } else {
+        name.to_upper_camel_case()
+    }
+}
+
+/// True when the SQL `name` is declared by enums / composites / domains living
+/// in more than one schema.
+pub fn type_name_has_cross_schema_collision(schema_info: &SchemaInfo, name: &str) -> bool {
+    let mut schemas: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    schemas.extend(
+        schema_info
+            .enums
+            .iter()
+            .filter(|e| e.name == name)
+            .map(|e| e.schema_name.as_str()),
+    );
+    schemas.extend(
+        schema_info
+            .composite_types
+            .iter()
+            .filter(|c| c.name == name)
+            .map(|c| c.schema_name.as_str()),
+    );
+    schemas.extend(
+        schema_info
+            .domains
+            .iter()
+            .filter(|d| d.name == name)
+            .map(|d| d.schema_name.as_str()),
+    );
+    schemas.len() > 1
+}
+
 /// Build a module name, prefixing with schema only when the name collides
 /// (same table name exists in multiple schemas).
 pub fn build_module_name(schema_name: &str, table_name: &str, name_collides: bool) -> String {
@@ -211,7 +258,8 @@ pub fn generate_with_domain_style(
                 enriched.default_variant = Some(default.clone());
             }
         }
-        let (tokens, imports) = enum_gen::generate_enum(&enriched, db_kind, extra_derives);
+        let (tokens, imports) =
+            enum_gen::generate_enum_with_schema(&enriched, db_kind, extra_derives, schema_info);
         types_blocks.push(format_tokens(&tokens)?);
         types_imports.extend(imports);
     }
@@ -807,6 +855,73 @@ mod tests {
         let input = "pub struct Foo {\n    pub a: i32,\n    pub b: String,\n}";
         let result = add_blank_lines_between_items(input);
         assert_eq!(result, input);
+    }
+
+    // ========== rust_type_name_for / cross-schema collisions ==========
+
+    fn schema_with_two_role_enums() -> SchemaInfo {
+        SchemaInfo {
+            enums: vec![
+                crate::introspect::EnumInfo {
+                    schema_name: "auth".into(),
+                    name: "role".into(),
+                    variants: vec!["admin".into(), "user".into()],
+                    default_variant: None,
+                },
+                crate::introspect::EnumInfo {
+                    schema_name: "billing".into(),
+                    name: "role".into(),
+                    variants: vec!["payer".into(), "payee".into()],
+                    default_variant: None,
+                },
+            ],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn rust_type_name_prefixes_schema_on_cross_schema_collision() {
+        let s = schema_with_two_role_enums();
+        assert_eq!(rust_type_name_for(&s, "auth", "role"), "AuthRole");
+        assert_eq!(rust_type_name_for(&s, "billing", "role"), "BillingRole");
+    }
+
+    #[test]
+    fn rust_type_name_keeps_bare_name_when_unique() {
+        let s = SchemaInfo {
+            enums: vec![crate::introspect::EnumInfo {
+                schema_name: "auth".into(),
+                name: "role".into(),
+                variants: vec!["admin".into()],
+                default_variant: None,
+            }],
+            ..Default::default()
+        };
+        assert_eq!(rust_type_name_for(&s, "auth", "role"), "Role");
+    }
+
+    #[test]
+    fn rust_type_name_default_schema_keeps_bare_name_even_on_collision() {
+        let s = SchemaInfo {
+            enums: vec![
+                crate::introspect::EnumInfo {
+                    schema_name: "public".into(),
+                    name: "role".into(),
+                    variants: vec!["a".into()],
+                    default_variant: None,
+                },
+                crate::introspect::EnumInfo {
+                    schema_name: "auth".into(),
+                    name: "role".into(),
+                    variants: vec!["b".into()],
+                    default_variant: None,
+                },
+            ],
+            ..Default::default()
+        };
+        // public stays "Role"; auth gets the schema prefix to break the tie.
+        assert_eq!(rust_type_name_for(&s, "public", "role"), "Role");
+        assert_eq!(rust_type_name_for(&s, "auth", "role"), "AuthRole");
     }
 
     // ========== filter_imports ==========

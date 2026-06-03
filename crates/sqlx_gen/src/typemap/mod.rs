@@ -62,7 +62,12 @@ pub fn map_column(
     }
 
     let base = match db_kind {
-        DatabaseKind::Postgres => postgres::map_type(&col.udt_name, schema_info, time_crate),
+        DatabaseKind::Postgres => postgres::map_type_qualified(
+            &col.udt_name,
+            col.udt_schema.as_deref(),
+            schema_info,
+            time_crate,
+        ),
         DatabaseKind::Mysql => mysql::map_type(&col.data_type, &col.udt_name, time_crate),
         DatabaseKind::Sqlite => sqlite::map_type(&col.udt_name, time_crate),
     };

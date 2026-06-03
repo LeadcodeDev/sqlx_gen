@@ -1,10 +1,10 @@
 use std::collections::{BTreeSet, HashMap};
 
-use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
 use crate::cli::{DatabaseKind, DomainStyle, TimeCrate};
+use crate::codegen::rust_type_name_for;
 use crate::introspect::{DomainInfo, SchemaInfo};
 use crate::typemap;
 
@@ -34,7 +34,8 @@ pub fn generate_domain_with_style(
     style: DomainStyle,
 ) -> (TokenStream, BTreeSet<String>) {
     let mut imports = BTreeSet::new();
-    let alias_name = format_ident!("{}", domain.name.to_upper_camel_case());
+    let rust_name = rust_type_name_for(schema_info, &domain.schema_name, &domain.name);
+    let alias_name = format_ident!("{}", rust_name);
 
     let doc = format!(
         "Domain: {}.{} (base: {})",

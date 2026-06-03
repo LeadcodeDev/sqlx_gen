@@ -5,8 +5,8 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
 use crate::cli::DatabaseKind;
-use crate::codegen::imports_for_derives;
-use crate::introspect::EnumInfo;
+use crate::codegen::{imports_for_derives, rust_type_name_for};
+use crate::introspect::{EnumInfo, SchemaInfo};
 
 /// Detect two SQL enum variants that collapse to the same Rust identifier after
 /// `to_upper_camel_case` (e.g. `"foo bar"` and `"foo_bar"` both become `FooBar`).
@@ -34,12 +34,24 @@ pub fn generate_enum(
     db_kind: DatabaseKind,
     extra_derives: &[String],
 ) -> (TokenStream, BTreeSet<String>) {
+    // Backwards-compatible entry point — uses an empty SchemaInfo so the
+    // enum keeps its bare PascalCase name (no schema prefix).
+    generate_enum_with_schema(enum_info, db_kind, extra_derives, &SchemaInfo::default())
+}
+
+pub fn generate_enum_with_schema(
+    enum_info: &EnumInfo,
+    db_kind: DatabaseKind,
+    extra_derives: &[String],
+    schema_info: &SchemaInfo,
+) -> (TokenStream, BTreeSet<String>) {
     let mut imports = BTreeSet::new();
     for imp in imports_for_derives(extra_derives) {
         imports.insert(imp);
     }
 
-    let enum_name = format_ident!("{}", enum_info.name.to_upper_camel_case());
+    let rust_name = rust_type_name_for(schema_info, &enum_info.schema_name, &enum_info.name);
+    let enum_name = format_ident!("{}", rust_name);
     let doc = format!("Enum: {}.{}", enum_info.schema_name, enum_info.name);
 
     imports.insert("use serde::{Serialize, Deserialize};".to_string());

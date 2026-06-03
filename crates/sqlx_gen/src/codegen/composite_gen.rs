@@ -1,11 +1,11 @@
 use std::collections::{BTreeSet, HashMap};
 
-use heck::{ToSnakeCase, ToUpperCamelCase};
+use heck::ToSnakeCase;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
 use crate::cli::{DatabaseKind, TimeCrate};
-use crate::codegen::{imports_for_derives, is_rust_keyword};
+use crate::codegen::{imports_for_derives, is_rust_keyword, rust_type_name_for};
 use crate::introspect::{CompositeTypeInfo, SchemaInfo};
 use crate::typemap;
 
@@ -21,7 +21,8 @@ pub fn generate_composite(
     for imp in imports_for_derives(extra_derives) {
         imports.insert(imp);
     }
-    let struct_name = format_ident!("{}", composite.name.to_upper_camel_case());
+    let rust_name = rust_type_name_for(schema_info, &composite.schema_name, &composite.name);
+    let struct_name = format_ident!("{}", rust_name);
 
     let doc = format!(
         "Composite type: {}.{}",

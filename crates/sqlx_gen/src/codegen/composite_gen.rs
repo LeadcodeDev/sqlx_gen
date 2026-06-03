@@ -45,11 +45,10 @@ pub fn generate_composite(
         derive_tokens.push(quote! { #ident });
     }
 
-    let pg_name = if composite.schema_name != "public" {
-        format!("{}.{}", composite.schema_name, composite.name)
-    } else {
-        composite.name.clone()
-    };
+    // Always unqualified — sqlx 0.8's PgTypeInfo::with_name does not accept "schema.type"
+    // and emitting it triggers runtime decode errors. Non-public schemas require the
+    // connection's `search_path` to include the schema.
+    let pg_name = &composite.name;
     let type_attr = quote! { #[sqlx(type_name = #pg_name)] };
 
     let fields: Vec<TokenStream> = composite
@@ -185,7 +184,8 @@ mod tests {
     }
 
     #[test]
-    fn test_non_public_schema_qualified_type_name() {
+    fn test_non_public_schema_type_name_is_unqualified() {
+        // Regression: previously emitted "geo.point" which crashes sqlx 0.8 at runtime.
         let c = CompositeTypeInfo {
             schema_name: "geo".to_string(),
             name: "point".to_string(),
@@ -194,7 +194,9 @@ mod tests {
         let schema = SchemaInfo::default();
         let (tokens, _) = generate_composite(&c, DatabaseKind::Postgres, &schema, &[], &HashMap::new(), TimeCrate::Chrono);
         let code = parse_and_format(&tokens);
-        assert!(code.contains("sqlx(type_name = \"geo.point\")"));
+        assert!(code.contains("sqlx(type_name = \"point\")"),
+            "type_name must be unqualified for sqlx 0.8, got:\n{}", code);
+        assert!(!code.contains("\"geo.point\""));
     }
 
     #[test]

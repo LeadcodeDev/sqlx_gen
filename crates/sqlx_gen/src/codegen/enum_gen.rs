@@ -38,13 +38,12 @@ pub fn generate_enum(
         derive_tokens.push(quote! { #ident });
     }
 
-    // For PG, add #[sqlx(type_name = "...")] — schema-qualify for non-public schemas
+    // For PG, add #[sqlx(type_name = "...")] — always unqualified.
+    // sqlx 0.8's PgTypeInfo::with_name does NOT accept schema-qualified names; emitting
+    // "schema.type" causes runtime decode failures. The user is expected to set
+    // `search_path` on the connection so that PG resolves the unqualified type name.
     let type_attr = if db_kind == DatabaseKind::Postgres {
-        let pg_name = if enum_info.schema_name != "public" {
-            format!("{}.{}", enum_info.schema_name, enum_info.name)
-        } else {
-            enum_info.name.clone()
-        };
+        let pg_name = &enum_info.name;
         quote! { #[sqlx(type_name = #pg_name)] }
     } else {
         quote! {}
@@ -183,7 +182,9 @@ mod tests {
     }
 
     #[test]
-    fn test_postgres_non_public_schema_qualified_type_name() {
+    fn test_postgres_non_public_schema_type_name_is_unqualified() {
+        // Regression: previously emitted "auth.role" which crashes sqlx 0.8 at runtime
+        // (PgTypeInfo::with_name does not accept schema-qualified names).
         let e = EnumInfo {
             schema_name: "auth".to_string(),
             name: "role".to_string(),
@@ -192,7 +193,10 @@ mod tests {
         };
         let (tokens, _) = generate_enum(&e, DatabaseKind::Postgres, &[]);
         let code = parse_and_format(&tokens);
-        assert!(code.contains("sqlx(type_name = \"auth.role\")"));
+        assert!(code.contains("sqlx(type_name = \"role\")"),
+            "type_name must be unqualified for sqlx 0.8 compatibility, got:\n{}", code);
+        assert!(!code.contains("\"auth.role\""),
+            "type_name must NOT include schema; got:\n{}", code);
     }
 
     #[test]
@@ -397,8 +401,8 @@ mod tests {
 
         assert!(code.contains("Enum: analysis.toolcall_status"));
         assert!(code.contains("pub enum ToolcallStatus"));
-        assert!(code.contains("sqlx(type_name = \"analysis.toolcall_status\")"));
-        assert!(!code.contains("sqlx(type_name = \"toolcall_status\")"));
+        assert!(code.contains("sqlx(type_name = \"toolcall_status\")"));
+        assert!(!code.contains("\"analysis.toolcall_status\""));
         assert!(code.contains("sqlx_gen(kind = \"enum\", schema = \"analysis\", name = \"toolcall_status\")"));
         assert!(code.contains("Pending"));
         assert!(code.contains("Running"));
@@ -415,7 +419,8 @@ mod tests {
         };
         let code = gen(&e, DatabaseKind::Postgres);
 
-        assert!(code.contains("sqlx(type_name = \"billing.payment_status\")"));
+        assert!(code.contains("sqlx(type_name = \"payment_status\")"));
+        assert!(!code.contains("\"billing.payment_status\""));
         assert!(code.contains("impl Default for PaymentStatus"));
         assert!(code.contains("Self::Pending"));
     }
@@ -425,7 +430,8 @@ mod tests {
         let e = make_enum_in_schema("audit", "log_level", vec!["info", "warn_high", "CRITICAL"]);
         let code = gen(&e, DatabaseKind::Postgres);
 
-        assert!(code.contains("sqlx(type_name = \"audit.log_level\")"));
+        assert!(code.contains("sqlx(type_name = \"log_level\")"));
+        assert!(!code.contains("\"audit.log_level\""));
         assert!(code.contains("sqlx(rename = \"info\")"));
         assert!(code.contains("sqlx(rename = \"warn_high\")"));
         assert!(code.contains("WarnHigh"));

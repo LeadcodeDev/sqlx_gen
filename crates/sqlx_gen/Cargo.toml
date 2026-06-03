@@ -27,6 +27,7 @@ cli = [
     "dep:prettyplease",
     "dep:log",
     "dep:env_logger",
+    "dep:tempfile",
 ]
 
 [dependencies]
@@ -51,6 +52,7 @@ syn = { version = "2", optional = true }
 prettyplease = { version = "0.2", optional = true }
 log = { version = "0.4", optional = true }
 env_logger = { version = "0.11", optional = true }
+tempfile = { version = "3", optional = true }
 
 [dev-dependencies]
 pretty_assertions = "1"

@@ -21,11 +21,15 @@ pub fn generate_crud_from_parsed(
     let repo_name = format!("{}Repository", entity.struct_name);
     let repo_ident = format_ident!("{}", repo_name);
 
-    let table_name = quote_qualified(
-        entity.schema_name.as_deref(),
-        &entity.table_name,
-        db_kind,
-    );
+    // Skip schema qualification for the well-known default schema of each
+    // backend ("public" for Postgres, "main" for SQLite, "dbo" for SQL Server-
+    // adjacent flows). Avoids verbose "public"."users" everywhere when the
+    // user has no other schema in play.
+    let schema_for_sql = entity
+        .schema_name
+        .as_deref()
+        .filter(|s| !crate::codegen::is_default_schema(s));
+    let table_name = quote_qualified(schema_for_sql, &entity.table_name, db_kind);
 
     // Pool type (used via full path sqlx::PgPool etc., no import needed)
     let pool_type = pool_type_tokens(db_kind);

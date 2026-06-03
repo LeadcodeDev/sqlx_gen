@@ -38,23 +38,29 @@ async fn run_entities(args: EntitiesArgs) -> Result<()> {
         }
     );
 
+    let redacted = sqlx_gen::error::redact_url(&args.db.database_url);
+    let conn_err = |source: sqlx::Error| sqlx_gen::error::Error::Connection {
+        redacted_url: redacted.clone(),
+        source,
+    };
+
     let mut schema_info = match db_kind {
         DatabaseKind::Postgres => {
-            let pool = PgPool::connect(&args.db.database_url).await?;
+            let pool = PgPool::connect(&args.db.database_url).await.map_err(conn_err)?;
             let info =
                 introspect::postgres::introspect(&pool, &args.db.schemas, args.views).await?;
             pool.close().await;
             info
         }
         DatabaseKind::Mysql => {
-            let pool = MySqlPool::connect(&args.db.database_url).await?;
+            let pool = MySqlPool::connect(&args.db.database_url).await.map_err(conn_err)?;
             let info =
                 introspect::mysql::introspect(&pool, &args.db.schemas, args.views).await?;
             pool.close().await;
             info
         }
         DatabaseKind::Sqlite => {
-            let pool = SqlitePool::connect(&args.db.database_url).await?;
+            let pool = SqlitePool::connect(&args.db.database_url).await.map_err(conn_err)?;
             let info = introspect::sqlite::introspect(&pool, args.views).await?;
             pool.close().await;
             info

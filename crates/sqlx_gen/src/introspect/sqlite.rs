@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use crate::error::Result;
 use sqlx::SqlitePool;
 
-use super::{ColumnInfo, SchemaInfo, TableInfo};
+use super::{ColumnInfo, EnumInfo, SchemaInfo, TableInfo};
 
 pub async fn introspect(pool: &SqlitePool, include_views: bool) -> Result<SchemaInfo> {
-    let tables = fetch_tables(pool).await?;
+    let mut tables = fetch_tables(pool).await?;
     let mut views = if include_views {
         fetch_views(pool).await?
     } else {
@@ -18,13 +18,126 @@ pub async fn introspect(pool: &SqlitePool, include_views: bool) -> Result<Schema
         resolve_view_primary_keys(&mut views, &tables);
     }
 
+    let enums = extract_check_enums(pool, &mut tables).await?;
+
     Ok(SchemaInfo {
         tables,
         views,
-        enums: Vec::new(),
+        enums,
         composite_types: Vec::new(),
         domains: Vec::new(),
     })
+}
+
+/// Detect SQLite "implicit enum" columns of the form
+/// `TEXT CHECK (col IN ('a', 'b', 'c'))` by parsing the DDL stored in
+/// `sqlite_master.sql`. Promotes the column's `udt_name` to the enum's
+/// synthesised name (`<table>_<col>_enum`) so the rest of the pipeline
+/// treats it like a real enum (with PgHasArrayType skipped for SQLite).
+async fn extract_check_enums(
+    pool: &SqlitePool,
+    tables: &mut [TableInfo],
+) -> Result<Vec<EnumInfo>> {
+    let mut enums = Vec::new();
+
+    for table in tables.iter_mut() {
+        let sql: Option<(Option<String>,)> = sqlx::query_as(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+        )
+        .bind(&table.name)
+        .fetch_optional(pool)
+        .await?;
+        let Some((Some(ddl),)) = sql else { continue };
+
+        for col in table.columns.iter_mut() {
+            if let Some(variants) = parse_check_in_variants(&ddl, &col.name) {
+                if variants.is_empty() {
+                    continue;
+                }
+                let enum_name = format!("{}_{}_enum", table.name, col.name);
+                col.udt_name = enum_name.clone();
+                enums.push(EnumInfo {
+                    schema_name: "main".to_string(),
+                    name: enum_name,
+                    variants,
+                    default_variant: None,
+                });
+            }
+        }
+    }
+
+    Ok(enums)
+}
+
+/// Parse `CHECK (col IN ('a','b','c'))` for a given column from a SQLite
+/// CREATE TABLE statement. Returns the parsed variants in declaration order
+/// or `None` if the column has no IN-style CHECK constraint.
+fn parse_check_in_variants(ddl: &str, column: &str) -> Option<Vec<String>> {
+    let lower_ddl = ddl.to_ascii_lowercase();
+    let lower_col = column.to_ascii_lowercase();
+    let mut search_from = 0usize;
+
+    while let Some(rel_check) = lower_ddl[search_from..].find("check") {
+        let check_pos = search_from + rel_check;
+        let after_check = &ddl[check_pos + 5..];
+        let after_check_lower = &lower_ddl[check_pos + 5..];
+
+        let open_rel = after_check.find('(')?;
+        let mut depth = 1i32;
+        let mut idx = open_rel + 1;
+        let bytes = after_check.as_bytes();
+        while idx < bytes.len() && depth > 0 {
+            match bytes[idx] {
+                b'(' => depth += 1,
+                b')' => depth -= 1,
+                b'\'' => {
+                    idx += 1;
+                    while idx < bytes.len() && bytes[idx] != b'\'' {
+                        idx += 1;
+                    }
+                }
+                _ => {}
+            }
+            idx += 1;
+        }
+        if depth != 0 {
+            return None;
+        }
+        let body = &after_check[open_rel + 1..idx - 1];
+        let body_lower = &after_check_lower[open_rel + 1..idx - 1];
+
+        search_from = check_pos + 5 + idx;
+
+        if !body_lower.contains(&lower_col) || !body_lower.contains(" in ") {
+            continue;
+        }
+
+        if let Some(in_pos) = body_lower.find(" in ") {
+            let list_start = body[in_pos..].find('(')?;
+            let list_body = &body[in_pos + list_start + 1..];
+            let mut variants = Vec::new();
+            let bytes = list_body.as_bytes();
+            let mut i = 0;
+            while i < bytes.len() {
+                if bytes[i] == b'\'' {
+                    let start = i + 1;
+                    let mut j = start;
+                    while j < bytes.len() && bytes[j] != b'\'' {
+                        j += 1;
+                    }
+                    variants.push(list_body[start..j].to_string());
+                    i = j + 1;
+                } else if bytes[i] == b')' {
+                    break;
+                } else {
+                    i += 1;
+                }
+            }
+            return Some(variants);
+        }
+    }
+
+    None
 }
 
 async fn fetch_tables(pool: &SqlitePool) -> Result<Vec<TableInfo>> {
@@ -297,5 +410,50 @@ mod tests {
         let mut views = vec![make_view("my_view", vec!["id"])];
         resolve_view_primary_keys(&mut views, &[]);
         assert!(!views[0].columns[0].is_primary_key);
+    }
+
+    // ========== parse_check_in_variants ==========
+
+    #[test]
+    fn test_parse_check_in_simple() {
+        let ddl = "CREATE TABLE t (id INTEGER PRIMARY KEY, status TEXT CHECK (status IN ('active', 'inactive')) NOT NULL)";
+        assert_eq!(
+            parse_check_in_variants(ddl, "status"),
+            Some(vec!["active".to_string(), "inactive".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_parse_check_in_three_variants() {
+        let ddl = "CREATE TABLE t (priority TEXT CHECK (priority IN ('low','medium','high')))";
+        assert_eq!(
+            parse_check_in_variants(ddl, "priority"),
+            Some(vec![
+                "low".to_string(),
+                "medium".to_string(),
+                "high".to_string()
+            ])
+        );
+    }
+
+    #[test]
+    fn test_parse_check_in_returns_none_for_other_column() {
+        let ddl = "CREATE TABLE t (status TEXT CHECK (status IN ('a','b')))";
+        assert_eq!(parse_check_in_variants(ddl, "other"), None);
+    }
+
+    #[test]
+    fn test_parse_check_in_returns_none_without_check() {
+        let ddl = "CREATE TABLE t (status TEXT)";
+        assert_eq!(parse_check_in_variants(ddl, "status"), None);
+    }
+
+    #[test]
+    fn test_parse_check_in_case_insensitive_keyword() {
+        let ddl = "CREATE TABLE t (status TEXT check (Status in ('a','b')))";
+        assert_eq!(
+            parse_check_in_variants(ddl, "status"),
+            Some(vec!["a".to_string(), "b".to_string()])
+        );
     }
 }

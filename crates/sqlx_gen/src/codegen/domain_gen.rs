@@ -46,6 +46,7 @@ pub fn generate_domain_with_style(
         name: String::new(),
         data_type: domain.base_type.clone(),
         udt_name: domain.base_type.clone(),
+        udt_schema: None,
         is_nullable: false,
         is_primary_key: false,
         ordinal_position: 0,

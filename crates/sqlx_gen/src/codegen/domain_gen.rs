@@ -4,7 +4,7 @@ use heck::ToUpperCamelCase;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
-use crate::cli::{DatabaseKind, TimeCrate};
+use crate::cli::{DatabaseKind, DomainStyle, TimeCrate};
 use crate::introspect::{DomainInfo, SchemaInfo};
 use crate::typemap;
 
@@ -14,6 +14,24 @@ pub fn generate_domain(
     schema_info: &SchemaInfo,
     type_overrides: &HashMap<String, String>,
     time_crate: TimeCrate,
+) -> (TokenStream, BTreeSet<String>) {
+    generate_domain_with_style(
+        domain,
+        db_kind,
+        schema_info,
+        type_overrides,
+        time_crate,
+        DomainStyle::Alias,
+    )
+}
+
+pub fn generate_domain_with_style(
+    domain: &DomainInfo,
+    db_kind: DatabaseKind,
+    schema_info: &SchemaInfo,
+    type_overrides: &HashMap<String, String>,
+    time_crate: TimeCrate,
+    style: DomainStyle,
 ) -> (TokenStream, BTreeSet<String>) {
     let mut imports = BTreeSet::new();
     let alias_name = format_ident!("{}", domain.name.to_upper_camel_case());
@@ -47,10 +65,22 @@ pub fn generate_domain(
     });
 
     let domain_doc = "sqlx_gen:kind=domain";
-    let tokens = quote! {
-        #[doc = #doc]
-        #[doc = #domain_doc]
-        pub type #alias_name = #type_tokens;
+    let tokens = match style {
+        DomainStyle::Alias => quote! {
+            #[doc = #doc]
+            #[doc = #domain_doc]
+            pub type #alias_name = #type_tokens;
+        },
+        DomainStyle::Newtype => {
+            imports.insert("use serde::{Serialize, Deserialize};".to_string());
+            quote! {
+                #[doc = #doc]
+                #[doc = #domain_doc]
+                #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+                #[sqlx(transparent)]
+                pub struct #alias_name(pub #type_tokens);
+            }
+        }
     };
 
     (tokens, imports)
@@ -168,5 +198,59 @@ mod tests {
         let d = make_domain("created", "timestamptz");
         let (_, imports) = gen(&d);
         assert!(imports.iter().any(|i| i.contains("chrono")));
+    }
+
+    // ========== DomainStyle::Newtype ==========
+
+    fn gen_newtype(domain: &DomainInfo) -> (String, BTreeSet<String>) {
+        let schema = SchemaInfo::default();
+        let (tokens, imports) = generate_domain_with_style(
+            domain,
+            DatabaseKind::Postgres,
+            &schema,
+            &HashMap::new(),
+            TimeCrate::Chrono,
+            DomainStyle::Newtype,
+        );
+        (parse_and_format(&tokens).unwrap(), imports)
+    }
+
+    #[test]
+    fn test_newtype_emits_tuple_struct() {
+        let d = make_domain("email", "text");
+        let (code, _) = gen_newtype(&d);
+        assert!(code.contains("pub struct Email(pub String)"),
+            "newtype must wrap the base type in a tuple struct, got:\n{}", code);
+    }
+
+    #[test]
+    fn test_newtype_uses_transparent_derive() {
+        let d = make_domain("email", "text");
+        let (code, _) = gen_newtype(&d);
+        assert!(code.contains("#[sqlx(transparent)]"));
+        assert!(code.contains("sqlx::Type"));
+    }
+
+    #[test]
+    fn test_newtype_keeps_doc_comments() {
+        let d = make_domain("email", "text");
+        let (code, _) = gen_newtype(&d);
+        assert!(code.contains("Domain: public.email (base: text)"));
+        assert!(code.contains("sqlx_gen:kind=domain"));
+    }
+
+    #[test]
+    fn test_newtype_wraps_uuid_with_import() {
+        let d = make_domain("my_uuid", "uuid");
+        let (code, imports) = gen_newtype(&d);
+        assert!(code.contains("pub struct MyUuid(pub Uuid)"));
+        assert!(imports.iter().any(|i| i.contains("uuid::Uuid")));
+    }
+
+    #[test]
+    fn test_newtype_does_not_emit_type_alias() {
+        let d = make_domain("email", "text");
+        let (code, _) = gen_newtype(&d);
+        assert!(!code.contains("pub type Email"));
     }
 }

@@ -119,6 +119,28 @@ pub fn generate(
     single_file: bool,
     time_crate: TimeCrate,
 ) -> crate::error::Result<Vec<GeneratedFile>> {
+    generate_with_domain_style(
+        schema_info,
+        db_kind,
+        extra_derives,
+        type_overrides,
+        single_file,
+        time_crate,
+        crate::cli::DomainStyle::Alias,
+    )
+}
+
+/// Same as [`generate`] but lets the caller pick how Postgres domains are
+/// rendered (alias vs newtype).
+pub fn generate_with_domain_style(
+    schema_info: &SchemaInfo,
+    db_kind: DatabaseKind,
+    extra_derives: &[String],
+    type_overrides: &HashMap<String, String>,
+    single_file: bool,
+    time_crate: TimeCrate,
+    domain_style: crate::cli::DomainStyle,
+) -> crate::error::Result<Vec<GeneratedFile>> {
     let mut files = Vec::new();
 
     // Detect table/view names that appear in multiple schemas (collisions)
@@ -208,8 +230,14 @@ pub fn generate(
     }
 
     for domain in &schema_info.domains {
-        let (tokens, imports) =
-            domain_gen::generate_domain(domain, db_kind, schema_info, type_overrides, time_crate);
+        let (tokens, imports) = domain_gen::generate_domain_with_style(
+            domain,
+            db_kind,
+            schema_info,
+            type_overrides,
+            time_crate,
+            domain_style,
+        );
         types_blocks.push(format_tokens(&tokens)?);
         types_imports.extend(imports);
     }

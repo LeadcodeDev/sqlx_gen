@@ -55,18 +55,15 @@ pub fn generate_composite(
         .fields
         .iter()
         .map(|col| {
-            let rust_type = typemap::map_column(col, db_kind, schema_info, type_overrides, time_crate);
+            let rust_type =
+                typemap::map_column(col, db_kind, schema_info, type_overrides, time_crate);
             if let Some(imp) = &rust_type.needs_import {
                 imports.insert(imp.clone());
             }
 
             let field_name_snake = col.name.to_snake_case();
             let (effective_name, needs_rename) = if is_rust_keyword(&field_name_snake) {
-                let prefixed = format!(
-                    "{}_{}",
-                    composite.name.to_snake_case(),
-                    field_name_snake
-                );
+                let prefixed = format!("{}_{}", composite.name.to_snake_case(), field_name_snake);
                 (prefixed, true)
             } else {
                 let changed = field_name_snake != col.name;
@@ -152,7 +149,14 @@ mod tests {
 
     fn gen(composite: &CompositeTypeInfo) -> String {
         let schema = SchemaInfo::default();
-        let (tokens, _) = generate_composite(composite, DatabaseKind::Postgres, &schema, &[], &HashMap::new(), TimeCrate::Chrono);
+        let (tokens, _) = generate_composite(
+            composite,
+            DatabaseKind::Postgres,
+            &schema,
+            &[],
+            &HashMap::new(),
+            TimeCrate::Chrono,
+        );
         parse_and_format(&tokens).unwrap()
     }
 
@@ -162,7 +166,14 @@ mod tests {
         overrides: &HashMap<String, String>,
     ) -> (String, BTreeSet<String>) {
         let schema = SchemaInfo::default();
-        let (tokens, imports) = generate_composite(composite, DatabaseKind::Postgres, &schema, derives, overrides, TimeCrate::Chrono);
+        let (tokens, imports) = generate_composite(
+            composite,
+            DatabaseKind::Postgres,
+            &schema,
+            derives,
+            overrides,
+            TimeCrate::Chrono,
+        );
         (parse_and_format(&tokens).unwrap(), imports)
     }
 
@@ -170,10 +181,13 @@ mod tests {
 
     #[test]
     fn test_simple_composite() {
-        let c = make_composite("address", vec![
-            make_field("street", "text", false),
-            make_field("city", "text", false),
-        ]);
+        let c = make_composite(
+            "address",
+            vec![
+                make_field("street", "text", false),
+                make_field("city", "text", false),
+            ],
+        );
         let code = gen(&c);
         assert!(code.contains("pub street: String"));
         assert!(code.contains("pub city: String"));
@@ -221,10 +235,20 @@ mod tests {
             fields: vec![make_field("x", "float8", false)],
         };
         let schema = SchemaInfo::default();
-        let (tokens, _) = generate_composite(&c, DatabaseKind::Postgres, &schema, &[], &HashMap::new(), TimeCrate::Chrono);
+        let (tokens, _) = generate_composite(
+            &c,
+            DatabaseKind::Postgres,
+            &schema,
+            &[],
+            &HashMap::new(),
+            TimeCrate::Chrono,
+        );
         let code = parse_and_format(&tokens).unwrap();
-        assert!(code.contains("sqlx(type_name = \"point\")"),
-            "type_name must be unqualified for sqlx 0.8, got:\n{}", code);
+        assert!(
+            code.contains("sqlx(type_name = \"point\")"),
+            "type_name must be unqualified for sqlx 0.8, got:\n{}",
+            code
+        );
         assert!(!code.contains("\"geo.point\""));
     }
 

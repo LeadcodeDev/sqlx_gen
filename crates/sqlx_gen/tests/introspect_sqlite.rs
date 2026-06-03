@@ -44,7 +44,11 @@ async fn test_empty_db_no_domains() {
 #[tokio::test]
 async fn test_one_table_two_columns() {
     let pool = setup_pool().await;
-    exec(&pool, "CREATE TABLE users (id INTEGER NOT NULL, name TEXT NOT NULL)").await;
+    exec(
+        &pool,
+        "CREATE TABLE users (id INTEGER NOT NULL, name TEXT NOT NULL)",
+    )
+    .await;
     let schema = introspect(&pool, false).await.unwrap();
     assert_eq!(schema.tables.len(), 1);
     assert_eq!(schema.tables[0].columns.len(), 2);
@@ -69,9 +73,17 @@ async fn test_schema_name_main() {
 #[tokio::test]
 async fn test_column_names_and_order() {
     let pool = setup_pool().await;
-    exec(&pool, "CREATE TABLE users (id INTEGER NOT NULL, name TEXT NOT NULL, email TEXT)").await;
+    exec(
+        &pool,
+        "CREATE TABLE users (id INTEGER NOT NULL, name TEXT NOT NULL, email TEXT)",
+    )
+    .await;
     let schema = introspect(&pool, false).await.unwrap();
-    let cols: Vec<&str> = schema.tables[0].columns.iter().map(|c| c.name.as_str()).collect();
+    let cols: Vec<&str> = schema.tables[0]
+        .columns
+        .iter()
+        .map(|c| c.name.as_str())
+        .collect();
     assert_eq!(cols, vec!["id", "name", "email"]);
 }
 
@@ -120,8 +132,16 @@ async fn test_multiple_tables_sorted() {
 #[tokio::test]
 async fn test_view_introspected_with_flag() {
     let pool = setup_pool().await;
-    exec(&pool, "CREATE TABLE users (id INTEGER NOT NULL, name TEXT NOT NULL)").await;
-    exec(&pool, "CREATE VIEW active_users AS SELECT id, name FROM users").await;
+    exec(
+        &pool,
+        "CREATE TABLE users (id INTEGER NOT NULL, name TEXT NOT NULL)",
+    )
+    .await;
+    exec(
+        &pool,
+        "CREATE VIEW active_users AS SELECT id, name FROM users",
+    )
+    .await;
     let schema = introspect(&pool, true).await.unwrap();
     assert_eq!(schema.views.len(), 1);
     assert_eq!(schema.views[0].name, "active_users");
@@ -130,10 +150,22 @@ async fn test_view_introspected_with_flag() {
 #[tokio::test]
 async fn test_view_columns_correct() {
     let pool = setup_pool().await;
-    exec(&pool, "CREATE TABLE users (id INTEGER NOT NULL, name TEXT NOT NULL)").await;
-    exec(&pool, "CREATE VIEW user_names AS SELECT id, name FROM users").await;
+    exec(
+        &pool,
+        "CREATE TABLE users (id INTEGER NOT NULL, name TEXT NOT NULL)",
+    )
+    .await;
+    exec(
+        &pool,
+        "CREATE VIEW user_names AS SELECT id, name FROM users",
+    )
+    .await;
     let schema = introspect(&pool, true).await.unwrap();
-    let cols: Vec<&str> = schema.views[0].columns.iter().map(|c| c.name.as_str()).collect();
+    let cols: Vec<&str> = schema.views[0]
+        .columns
+        .iter()
+        .map(|c| c.name.as_str())
+        .collect();
     assert_eq!(cols, vec!["id", "name"]);
 }
 

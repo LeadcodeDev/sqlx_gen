@@ -35,7 +35,8 @@ pub fn generate_domain(
         column_default: None,
     };
 
-    let rust_type = typemap::map_column(&fake_col, db_kind, schema_info, type_overrides, time_crate);
+    let rust_type =
+        typemap::map_column(&fake_col, db_kind, schema_info, type_overrides, time_crate);
     if let Some(imp) = &rust_type.needs_import {
         imports.insert(imp.clone());
     }
@@ -70,13 +71,28 @@ mod tests {
 
     fn gen(domain: &DomainInfo) -> (String, BTreeSet<String>) {
         let schema = SchemaInfo::default();
-        let (tokens, imports) = generate_domain(domain, DatabaseKind::Postgres, &schema, &HashMap::new(), TimeCrate::Chrono);
+        let (tokens, imports) = generate_domain(
+            domain,
+            DatabaseKind::Postgres,
+            &schema,
+            &HashMap::new(),
+            TimeCrate::Chrono,
+        );
         (parse_and_format(&tokens).unwrap(), imports)
     }
 
-    fn gen_with_overrides(domain: &DomainInfo, overrides: &HashMap<String, String>) -> (String, BTreeSet<String>) {
+    fn gen_with_overrides(
+        domain: &DomainInfo,
+        overrides: &HashMap<String, String>,
+    ) -> (String, BTreeSet<String>) {
         let schema = SchemaInfo::default();
-        let (tokens, imports) = generate_domain(domain, DatabaseKind::Postgres, &schema, overrides, TimeCrate::Chrono);
+        let (tokens, imports) = generate_domain(
+            domain,
+            DatabaseKind::Postgres,
+            &schema,
+            overrides,
+            TimeCrate::Chrono,
+        );
         (parse_and_format(&tokens).unwrap(), imports)
     }
 

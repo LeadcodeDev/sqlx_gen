@@ -47,7 +47,8 @@ pub fn generate_struct(
         .columns
         .iter()
         .map(|col| {
-            let rust_type = resolve_column_type(col, db_kind, table, schema_info, type_overrides, time_crate);
+            let rust_type =
+                resolve_column_type(col, db_kind, table, schema_info, type_overrides, time_crate);
             if let Some(imp) = &rust_type.needs_import {
                 imports.insert(imp.clone());
             }
@@ -56,11 +57,7 @@ pub fn generate_struct(
             // If the field name is a Rust keyword, prefix with table name
             // e.g. column "type" on table "connector" → "connector_type"
             let (effective_name, needs_rename) = if is_rust_keyword(&field_name_snake) {
-                let prefixed = format!(
-                    "{}_{}",
-                    table.name.to_snake_case(),
-                    field_name_snake
-                );
+                let prefixed = format!("{}_{}", table.name.to_snake_case(), field_name_snake);
                 (prefixed, true)
             } else {
                 let changed = field_name_snake != col.name;
@@ -87,12 +84,20 @@ pub fn generate_struct(
             let has_default = col.column_default.is_some();
 
             let sqlx_gen_attr = if has_pk || has_sql_type || has_default {
-                let pk_part = if has_pk { quote! { primary_key, } } else { quote! {} };
+                let pk_part = if has_pk {
+                    quote! { primary_key, }
+                } else {
+                    quote! {}
+                };
                 let sql_type_part = match &sql_type {
                     Some(t) => quote! { sql_type = #t, },
                     None => quote! {},
                 };
-                let array_part = if is_sql_array { quote! { is_array, } } else { quote! {} };
+                let array_part = if is_sql_array {
+                    quote! { is_array, }
+                } else {
+                    quote! {}
+                };
                 let default_part = match &col.column_default {
                     Some(d) => quote! { column_default = #d, },
                     None => quote! {},
@@ -139,7 +144,13 @@ pub(crate) fn sanitize_rust_ident(name: &str) -> String {
     }
     let mut out: String = name
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     if out.starts_with(|c: char| c.is_ascii_digit()) {
         out.insert(0, '_');
@@ -163,7 +174,11 @@ fn detect_custom_sql_type(udt_name: &str, schema_info: &SchemaInfo) -> (Option<S
     }
 
     // Check composite types
-    if schema_info.composite_types.iter().any(|c| c.name == base_name) {
+    if schema_info
+        .composite_types
+        .iter()
+        .any(|c| c.name == base_name)
+    {
         return (Some(base_name.to_string()), is_array);
     }
 
@@ -239,7 +254,15 @@ mod tests {
 
     fn gen(table: &TableInfo) -> String {
         let schema = SchemaInfo::default();
-        let (tokens, _) = generate_struct(table, DatabaseKind::Postgres, &schema, &[], &HashMap::new(), false, TimeCrate::Chrono);
+        let (tokens, _) = generate_struct(
+            table,
+            DatabaseKind::Postgres,
+            &schema,
+            &[],
+            &HashMap::new(),
+            false,
+            TimeCrate::Chrono,
+        );
         parse_and_format(&tokens).unwrap()
     }
 
@@ -250,7 +273,15 @@ mod tests {
         derives: &[String],
         overrides: &HashMap<String, String>,
     ) -> (String, BTreeSet<String>) {
-        let (tokens, imports) = generate_struct(table, db, schema, derives, overrides, false, TimeCrate::Chrono);
+        let (tokens, imports) = generate_struct(
+            table,
+            db,
+            schema,
+            derives,
+            overrides,
+            false,
+            TimeCrate::Chrono,
+        );
         (parse_and_format(&tokens).unwrap(), imports)
     }
 
@@ -258,10 +289,13 @@ mod tests {
 
     #[test]
     fn test_simple_table() {
-        let table = make_table("users", vec![
-            make_col("id", "int4", false),
-            make_col("name", "text", false),
-        ]);
+        let table = make_table(
+            "users",
+            vec![
+                make_col("id", "int4", false),
+                make_col("name", "text", false),
+            ],
+        );
         let code = gen(&table);
         assert!(code.contains("pub id: i32"));
         assert!(code.contains("pub name: String"));
@@ -300,10 +334,10 @@ mod tests {
 
     #[test]
     fn test_mix_nullable() {
-        let table = make_table("users", vec![
-            make_col("id", "int4", false),
-            make_col("bio", "text", true),
-        ]);
+        let table = make_table(
+            "users",
+            vec![make_col("id", "int4", false), make_col("bio", "text", true)],
+        );
         let code = gen(&table);
         assert!(code.contains("pub id: i32"));
         assert!(code.contains("pub bio: Option<String>"));
@@ -383,7 +417,13 @@ mod tests {
         let table = make_table("users", vec![make_col("id", "int4", false)]);
         let schema = SchemaInfo::default();
         let derives = vec!["Serialize".to_string()];
-        let (code, _) = gen_with(&table, &schema, DatabaseKind::Postgres, &derives, &HashMap::new());
+        let (code, _) = gen_with(
+            &table,
+            &schema,
+            DatabaseKind::Postgres,
+            &derives,
+            &HashMap::new(),
+        );
         assert!(code.contains("Serialize"));
     }
 
@@ -392,7 +432,13 @@ mod tests {
         let table = make_table("users", vec![make_col("id", "int4", false)]);
         let schema = SchemaInfo::default();
         let derives = vec!["Serialize".to_string(), "Deserialize".to_string()];
-        let (_, imports) = gen_with(&table, &schema, DatabaseKind::Postgres, &derives, &HashMap::new());
+        let (_, imports) = gen_with(
+            &table,
+            &schema,
+            DatabaseKind::Postgres,
+            &derives,
+            &HashMap::new(),
+        );
         assert!(imports.iter().any(|i| i.contains("serde")));
     }
 
@@ -402,7 +448,13 @@ mod tests {
     fn test_uuid_import() {
         let table = make_table("users", vec![make_col("id", "uuid", false)]);
         let schema = SchemaInfo::default();
-        let (_, imports) = gen_with(&table, &schema, DatabaseKind::Postgres, &[], &HashMap::new());
+        let (_, imports) = gen_with(
+            &table,
+            &schema,
+            DatabaseKind::Postgres,
+            &[],
+            &HashMap::new(),
+        );
         assert!(imports.iter().any(|i| i.contains("uuid::Uuid")));
     }
 
@@ -410,7 +462,13 @@ mod tests {
     fn test_timestamptz_import() {
         let table = make_table("users", vec![make_col("created_at", "timestamptz", false)]);
         let schema = SchemaInfo::default();
-        let (_, imports) = gen_with(&table, &schema, DatabaseKind::Postgres, &[], &HashMap::new());
+        let (_, imports) = gen_with(
+            &table,
+            &schema,
+            DatabaseKind::Postgres,
+            &[],
+            &HashMap::new(),
+        );
         assert!(imports.iter().any(|i| i.contains("chrono")));
     }
 
@@ -418,7 +476,13 @@ mod tests {
     fn test_int4_only_serde_import() {
         let table = make_table("users", vec![make_col("id", "int4", false)]);
         let schema = SchemaInfo::default();
-        let (_, imports) = gen_with(&table, &schema, DatabaseKind::Postgres, &[], &HashMap::new());
+        let (_, imports) = gen_with(
+            &table,
+            &schema,
+            DatabaseKind::Postgres,
+            &[],
+            &HashMap::new(),
+        );
         assert_eq!(imports.len(), 2);
         assert!(imports.iter().any(|i| i.contains("serde")));
         assert!(imports.iter().any(|i| i.contains("sqlx_gen::SqlxGen")));
@@ -426,12 +490,21 @@ mod tests {
 
     #[test]
     fn test_multiple_imports_collected() {
-        let table = make_table("users", vec![
-            make_col("id", "uuid", false),
-            make_col("created_at", "timestamptz", false),
-        ]);
+        let table = make_table(
+            "users",
+            vec![
+                make_col("id", "uuid", false),
+                make_col("created_at", "timestamptz", false),
+            ],
+        );
         let schema = SchemaInfo::default();
-        let (_, imports) = gen_with(&table, &schema, DatabaseKind::Postgres, &[], &HashMap::new());
+        let (_, imports) = gen_with(
+            &table,
+            &schema,
+            DatabaseKind::Postgres,
+            &[],
+            &HashMap::new(),
+        );
         assert!(imports.iter().any(|i| i.contains("uuid")));
         assert!(imports.iter().any(|i| i.contains("chrono")));
     }
@@ -440,16 +513,19 @@ mod tests {
 
     #[test]
     fn test_mysql_enum_column() {
-        let table = make_table("users", vec![ColumnInfo {
-            name: "status".to_string(),
-            data_type: "enum".to_string(),
-            udt_name: "enum('active','inactive')".to_string(),
-            is_nullable: false,
-            is_primary_key: false,
-            ordinal_position: 0,
-            schema_name: "test_db".to_string(),
-            column_default: None,
-        }]);
+        let table = make_table(
+            "users",
+            vec![ColumnInfo {
+                name: "status".to_string(),
+                data_type: "enum".to_string(),
+                udt_name: "enum('active','inactive')".to_string(),
+                is_nullable: false,
+                is_primary_key: false,
+                ordinal_position: 0,
+                schema_name: "test_db".to_string(),
+                column_default: None,
+            }],
+        );
         let schema = SchemaInfo::default();
         let (code, imports) = gen_with(&table, &schema, DatabaseKind::Mysql, &[], &HashMap::new());
         assert!(code.contains("UsersStatus"));
@@ -458,16 +534,19 @@ mod tests {
 
     #[test]
     fn test_mysql_enum_nullable() {
-        let table = make_table("users", vec![ColumnInfo {
-            name: "status".to_string(),
-            data_type: "enum".to_string(),
-            udt_name: "enum('a','b')".to_string(),
-            is_nullable: true,
-            is_primary_key: false,
-            ordinal_position: 0,
-            schema_name: "test_db".to_string(),
-            column_default: None,
-        }]);
+        let table = make_table(
+            "users",
+            vec![ColumnInfo {
+                name: "status".to_string(),
+                data_type: "enum".to_string(),
+                udt_name: "enum('a','b')".to_string(),
+                is_nullable: true,
+                is_primary_key: false,
+                ordinal_position: 0,
+                schema_name: "test_db".to_string(),
+                column_default: None,
+            }],
+        );
         let schema = SchemaInfo::default();
         let (code, _) = gen_with(&table, &schema, DatabaseKind::Mysql, &[], &HashMap::new());
         assert!(code.contains("Option<UsersStatus>"));
@@ -489,7 +568,13 @@ mod tests {
     fn test_type_override_absent() {
         let table = make_table("users", vec![make_col("data", "jsonb", false)]);
         let schema = SchemaInfo::default();
-        let (code, _) = gen_with(&table, &schema, DatabaseKind::Postgres, &[], &HashMap::new());
+        let (code, _) = gen_with(
+            &table,
+            &schema,
+            DatabaseKind::Postgres,
+            &[],
+            &HashMap::new(),
+        );
         assert!(code.contains("Value"));
     }
 
@@ -578,8 +663,11 @@ mod tests {
         let table = make_table("users", vec![make_col("user-id", "int4", false)]);
         let code = gen(&table);
         // Must produce a Rust-legal identifier; renamed back to the original via #[sqlx(rename)]
-        assert!(code.contains("pub user_id:") || code.contains("user_id:"),
-            "expected sanitized identifier, got:\n{}", code);
+        assert!(
+            code.contains("pub user_id:") || code.contains("user_id:"),
+            "expected sanitized identifier, got:\n{}",
+            code
+        );
         assert!(code.contains("sqlx(rename = \"user-id\")"));
     }
 }

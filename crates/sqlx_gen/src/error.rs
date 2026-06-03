@@ -74,7 +74,10 @@ mod tests {
 
     #[test]
     fn leaves_no_userinfo_unchanged() {
-        assert_eq!(redact_url("postgres://localhost/db"), "postgres://localhost/db");
+        assert_eq!(
+            redact_url("postgres://localhost/db"),
+            "postgres://localhost/db"
+        );
     }
 
     #[test]

@@ -100,13 +100,14 @@ async fn run_entities(args: EntitiesArgs) -> Result<()> {
         );
     }
 
-    let files = codegen::generate(
+    let files = codegen::generate_with_domain_style(
         &schema_info,
         db_kind,
         &args.derives,
         &type_overrides,
         args.single_file,
         args.time_crate,
+        args.domain_style,
     )?;
 
     writer::write_files(&files, &args.output_dir, args.single_file, args.dry_run)?;

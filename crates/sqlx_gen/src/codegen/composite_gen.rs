@@ -23,6 +23,19 @@ pub fn generate_composite(
     }
     let rust_name = rust_type_name_for(schema_info, &composite.schema_name, &composite.name);
     let struct_name = format_ident!("{}", rust_name);
+    let search_path_doc = if db_kind == DatabaseKind::Postgres
+        && !crate::codegen::is_default_schema(&composite.schema_name)
+    {
+        Some(format!(
+            "Lives in PostgreSQL schema `{schema}`. The sqlx connection must \
+             include `{schema}` in its search_path so PG resolves the \
+             unqualified `type_name = \"{name}\"` to this composite.",
+            schema = composite.schema_name,
+            name = composite.name,
+        ))
+    } else {
+        None
+    };
 
     let doc = format!(
         "Composite type: {}.{}",
@@ -106,8 +119,13 @@ pub fn generate_composite(
         quote! {}
     };
 
+    let search_path_doc_tokens = match &search_path_doc {
+        Some(m) => quote! { #[doc = #m] },
+        None => quote! {},
+    };
     let tokens = quote! {
         #[doc = #doc]
+        #search_path_doc_tokens
         #[derive(#(#derive_tokens),*)]
         #[sqlx_gen(kind = "composite")]
         #type_attr
@@ -144,7 +162,7 @@ mod tests {
             is_primary_key: false,
             ordinal_position: 0,
             schema_name: "public".to_string(),
-                udt_schema: None,
+            udt_schema: None,
             column_default: None,
         }
     }

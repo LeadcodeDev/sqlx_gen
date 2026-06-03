@@ -53,6 +53,28 @@ pub fn generate_enum_with_schema(
     let rust_name = rust_type_name_for(schema_info, &enum_info.schema_name, &enum_info.name);
     let enum_name = format_ident!("{}", rust_name);
     let doc = format!("Enum: {}.{}", enum_info.schema_name, enum_info.name);
+    // For non-default schemas, remind the user that sqlx 0.8 can only resolve
+    // unqualified type_name attributes — the connection must have the schema
+    // in its search_path. Emitted as a /// doc-comment so it shows up both in
+    // generated source and in rustdoc.
+    let search_path_doc = if db_kind == DatabaseKind::Postgres
+        && !crate::codegen::is_default_schema(&enum_info.schema_name)
+    {
+        let msg = format!(
+            "Lives in PostgreSQL schema `{schema}`. The sqlx connection \
+             must include `{schema}` in its search_path so PG resolves the \
+             unqualified `type_name = \"{name}\"` to this enum. Example:\n\
+             \n\
+             ```ignore\n\
+             sqlx::query(\"SET search_path TO public, {schema}\")\n\
+             ```",
+            schema = enum_info.schema_name,
+            name = enum_info.name,
+        );
+        Some(msg)
+    } else {
+        None
+    };
 
     imports.insert("use serde::{Serialize, Deserialize};".to_string());
     imports.insert("use sqlx_gen::SqlxGen;".to_string());
@@ -135,9 +157,14 @@ pub fn generate_enum_with_schema(
 
     let schema_name_str = &enum_info.schema_name;
     let enum_name_str = &enum_info.name;
+    let search_path_doc_tokens = match &search_path_doc {
+        Some(m) => quote! { #[doc = #m] },
+        None => quote! {},
+    };
 
     let tokens = quote! {
         #[doc = #doc]
+        #search_path_doc_tokens
         #[derive(#(#derive_tokens),*)]
         #[sqlx_gen(kind = "enum", schema = #schema_name_str, name = #enum_name_str)]
         #type_attr

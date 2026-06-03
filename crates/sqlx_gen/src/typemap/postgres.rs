@@ -86,25 +86,28 @@ pub fn map_type_qualified(
     // exact (schema, name) matches first; otherwise we fall back to the
     // first name match so that legacy callers (and synthetic test fixtures)
     // keep working.
-    let enum_match = schema_info.enums.iter().find(|e| {
-        e.name == udt_name && udt_schema.map(|s| s == e.schema_name).unwrap_or(true)
-    });
+    let enum_match = schema_info
+        .enums
+        .iter()
+        .find(|e| e.name == udt_name && udt_schema.map(|s| s == e.schema_name).unwrap_or(true));
     if let Some(e) = enum_match {
         let name = rust_type_name(&e.schema_name, &e.name, schema_info);
         return RustType::with_import(&name, &format!("use super::types::{};", name));
     }
 
-    let composite_match = schema_info.composite_types.iter().find(|c| {
-        c.name == udt_name && udt_schema.map(|s| s == c.schema_name).unwrap_or(true)
-    });
+    let composite_match = schema_info
+        .composite_types
+        .iter()
+        .find(|c| c.name == udt_name && udt_schema.map(|s| s == c.schema_name).unwrap_or(true));
     if let Some(c) = composite_match {
         let name = rust_type_name(&c.schema_name, &c.name, schema_info);
         return RustType::with_import(&name, &format!("use super::types::{};", name));
     }
 
-    let domain_match = schema_info.domains.iter().find(|d| {
-        d.name == udt_name && udt_schema.map(|s| s == d.schema_name).unwrap_or(true)
-    });
+    let domain_match = schema_info
+        .domains
+        .iter()
+        .find(|d| d.name == udt_name && udt_schema.map(|s| s == d.schema_name).unwrap_or(true));
     if let Some(domain) = domain_match {
         // Map to the domain's base type — base type lives in pg_catalog so
         // schema is irrelevant for the recursive lookup.

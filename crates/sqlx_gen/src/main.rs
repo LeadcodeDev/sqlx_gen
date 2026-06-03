@@ -103,6 +103,18 @@ async fn run_entities(args: EntitiesArgs) -> Result<()> {
         schema_info.composite_types.len(),
         schema_info.domains.len(),
     );
+    if db_kind == DatabaseKind::Postgres {
+        let needed = sqlx_gen::codegen::required_pg_search_path(&schema_info);
+        if !needed.is_empty() {
+            info!(
+                "Generated types reference non-default schemas: {}. \
+                 Configure the sqlx pool to include them in search_path, e.g. \
+                 `SET search_path TO public, {}`",
+                needed.join(", "),
+                needed.join(", ")
+            );
+        }
+    }
     if table_count == 0 && view_count == 0 && enum_count == 0 {
         warn!(
             "No tables, views, or enums found in schemas {:?}. \

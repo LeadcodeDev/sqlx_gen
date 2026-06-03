@@ -44,9 +44,7 @@ async fn run_entities(args: EntitiesArgs) -> Result<()> {
     // Database variant, re-classify by SQLSTATE so the user sees an
     // actionable message instead of the raw "error returned from database".
     let map_introspect_error = |e: sqlx_gen::error::Error| match e {
-        sqlx_gen::error::Error::Database(inner) => {
-            sqlx_gen::error::contextualize_sqlx_error(inner)
-        }
+        sqlx_gen::error::Error::Database(inner) => sqlx_gen::error::contextualize_sqlx_error(inner),
         other => other,
     };
 
@@ -55,8 +53,8 @@ async fn run_entities(args: EntitiesArgs) -> Result<()> {
             let pool = PgPool::connect(&args.db.database_url)
                 .await
                 .map_err(conn_err)?;
-            let info =
-                introspect::postgres::introspect(&pool, &args.db.schemas, args.views).await
+            let info = introspect::postgres::introspect(&pool, &args.db.schemas, args.views)
+                .await
                 .map_err(map_introspect_error)?;
             pool.close().await;
             info
@@ -65,7 +63,8 @@ async fn run_entities(args: EntitiesArgs) -> Result<()> {
             let pool = MySqlPool::connect(&args.db.database_url)
                 .await
                 .map_err(conn_err)?;
-            let info = introspect::mysql::introspect(&pool, &args.db.schemas, args.views).await
+            let info = introspect::mysql::introspect(&pool, &args.db.schemas, args.views)
+                .await
                 .map_err(map_introspect_error)?;
             pool.close().await;
             info
@@ -74,7 +73,8 @@ async fn run_entities(args: EntitiesArgs) -> Result<()> {
             let pool = SqlitePool::connect(&args.db.database_url)
                 .await
                 .map_err(conn_err)?;
-            let info = introspect::sqlite::introspect(&pool, args.views).await
+            let info = introspect::sqlite::introspect(&pool, args.views)
+                .await
                 .map_err(map_introspect_error)?;
             pool.close().await;
             info

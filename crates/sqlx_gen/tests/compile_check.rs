@@ -62,13 +62,7 @@ fn rich_schema() -> SchemaInfo {
     }
 }
 
-fn column(
-    name: &str,
-    udt: &str,
-    nullable: bool,
-    pk: bool,
-    default: Option<&str>,
-) -> ColumnInfo {
+fn column(name: &str, udt: &str, nullable: bool, pk: bool, default: Option<&str>) -> ColumnInfo {
     ColumnInfo {
         name: name.to_string(),
         data_type: udt.to_string(),
@@ -111,10 +105,15 @@ fn generated_postgres_files_parse() {
 fn generated_mysql_files_parse() {
     let schema = SchemaInfo {
         // MySQL has no enums/composites/domains in our model, just tables.
-        tables: rich_schema().tables.into_iter().map(|mut t| {
-            t.columns.retain(|c| c.udt_name != "status" && c.udt_name != "jsonb");
-            t
-        }).collect(),
+        tables: rich_schema()
+            .tables
+            .into_iter()
+            .map(|mut t| {
+                t.columns
+                    .retain(|c| c.udt_name != "status" && c.udt_name != "jsonb");
+                t
+            })
+            .collect(),
         views: vec![],
         enums: vec![],
         composite_types: vec![],
@@ -278,7 +277,10 @@ fn workspace_root() -> std::path::PathBuf {
             .unwrap_or(false)
     {
         if !p.pop() {
-            panic!("could not locate workspace root from {}", env!("CARGO_MANIFEST_DIR"));
+            panic!(
+                "could not locate workspace root from {}",
+                env!("CARGO_MANIFEST_DIR")
+            );
         }
     }
     p

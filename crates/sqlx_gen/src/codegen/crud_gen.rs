@@ -5,6 +5,7 @@ use quote::{format_ident, quote};
 
 use crate::cli::{DatabaseKind, Methods, PoolVisibility};
 use crate::codegen::entity_parser::{ParsedEntity, ParsedField};
+use crate::codegen::identifiers::{quote_ident, quote_qualified};
 
 pub fn generate_crud_from_parsed(
     entity: &ParsedEntity,
@@ -20,10 +21,11 @@ pub fn generate_crud_from_parsed(
     let repo_name = format!("{}Repository", entity.struct_name);
     let repo_ident = format_ident!("{}", repo_name);
 
-    let table_name = match &entity.schema_name {
-        Some(schema) => format!("{}.{}", schema, entity.table_name),
-        None => entity.table_name.clone(),
-    };
+    let table_name = quote_qualified(
+        entity.schema_name.as_deref(),
+        &entity.table_name,
+        db_kind,
+    );
 
     // Pool type (used via full path sqlx::PgPool etc., no import needed)
     let pool_type = pool_type_tokens(db_kind);
@@ -268,9 +270,9 @@ pub fn generate_crud_from_parsed(
             })
             .collect();
 
-        let col_names: Vec<&str> = insert_source_fields
+        let col_names: Vec<String> = insert_source_fields
             .iter()
-            .map(|f| f.column_name.as_str())
+            .map(|f| quote_ident(&f.column_name, db_kind))
             .collect();
         let col_list = col_names.join(", ");
 
@@ -355,9 +357,9 @@ pub fn generate_crud_from_parsed(
             non_pk_fields.clone()
         };
 
-        let col_names: Vec<&str> = insert_source_fields
+        let col_names: Vec<String> = insert_source_fields
             .iter()
-            .map(|f| f.column_name.as_str())
+            .map(|f| quote_ident(&f.column_name, db_kind))
             .collect();
         let col_list = col_names.join(", ");
         let num_cols = insert_source_fields.len();
@@ -437,7 +439,7 @@ pub fn generate_crud_from_parsed(
             .enumerate()
             .map(|(i, f)| {
                 let p = placeholder(db_kind, i + 1);
-                format!("{} = {}", f.column_name, p)
+                format!("{} = {}", quote_ident(&f.column_name, db_kind), p)
             })
             .collect();
         let set_clause = set_cols.join(",\n  ");
@@ -447,7 +449,7 @@ pub fn generate_crud_from_parsed(
             .enumerate()
             .map(|(i, f)| {
                 let p = placeholder_with_cast(db_kind, i + 1, f);
-                format!("{} = {}", f.column_name, p)
+                format!("{} = {}", quote_ident(&f.column_name, db_kind), p)
             })
             .collect();
         let set_clause_cast = set_cols_cast.join(",\n  ");
@@ -467,6 +469,8 @@ pub fn generate_crud_from_parsed(
                 format!("UPDATE {}\nSET\n  {}\nWHERE {}", table_name, sc, wc)
             }
         };
+
+
         let sql = raw_sql_lit(&build_overwrite_sql(&set_clause, &where_clause));
         let sql_macro = raw_sql_lit(&build_overwrite_sql(&set_clause_cast, &where_clause_cast));
 
@@ -615,7 +619,8 @@ pub fn generate_crud_from_parsed(
             .enumerate()
             .map(|(i, f)| {
                 let p = placeholder(db_kind, i + 1);
-                format!("{col} = COALESCE({p}, {col})", col = f.column_name, p = p)
+                let col = quote_ident(&f.column_name, db_kind);
+                format!("{col} = COALESCE({p}, {col})", col = col, p = p)
             })
             .collect();
         let set_clause = set_cols.join(",\n  ");
@@ -626,7 +631,8 @@ pub fn generate_crud_from_parsed(
             .enumerate()
             .map(|(i, f)| {
                 let p = placeholder_with_cast(db_kind, i + 1, f);
-                format!("{col} = COALESCE({p}, {col})", col = f.column_name, p = p)
+                let col = quote_ident(&f.column_name, db_kind);
+                format!("{col} = COALESCE({p}, {col})", col = col, p = p)
             })
             .collect();
         let set_clause_cast = set_cols_cast.join(",\n  ");
@@ -887,7 +893,7 @@ fn build_where_clause_parsed(
         .enumerate()
         .map(|(i, f)| {
             let p = placeholder(db_kind, start_index + i);
-            format!("{} = {}", f.column_name, p)
+            format!("{} = {}", quote_ident(&f.column_name, db_kind), p)
         })
         .collect::<Vec<_>>()
         .join(" AND ")
@@ -918,7 +924,7 @@ fn build_where_clause_cast(
         .enumerate()
         .map(|(i, f)| {
             let p = placeholder_with_cast(db_kind, start_index + i, f);
-            format!("{} = {}", f.column_name, p)
+            format!("{} = {}", quote_ident(&f.column_name, db_kind), p)
         })
         .collect::<Vec<_>>()
         .join(" AND ")
@@ -1406,7 +1412,7 @@ mod tests {
     #[test]
     fn test_get_all_sql() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("SELECT * FROM users"));
+        assert!(code.contains("SELECT * FROM \"users\""));
     }
 
     // --- paginate ---
@@ -1458,7 +1464,7 @@ mod tests {
     #[test]
     fn test_paginate_count_sql() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("SELECT COUNT(*) FROM users"));
+        assert!(code.contains("SELECT COUNT(*) FROM \"users\""));
     }
 
     #[test]
@@ -1490,13 +1496,13 @@ mod tests {
     #[test]
     fn test_get_where_pk_pg() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("WHERE id = $1"));
+        assert!(code.contains("WHERE \"id\" = $1"));
     }
 
     #[test]
     fn test_get_where_pk_mysql() {
         let code = gen(&standard_entity(), DatabaseKind::Mysql);
-        assert!(code.contains("WHERE id = ?"));
+        assert!(code.contains("WHERE `id` = ?"));
     }
 
     // --- insert ---
@@ -1716,12 +1722,12 @@ mod tests {
     fn test_update_set_clause_uses_coalesce_pg() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
         assert!(
-            code.contains("COALESCE($1, name)"),
+            code.contains("COALESCE($1, \"name\")"),
             "Expected COALESCE for name:\n{}",
             code
         );
         assert!(
-            code.contains("COALESCE($2, email)"),
+            code.contains("COALESCE($2, \"email\")"),
             "Expected COALESCE for email:\n{}",
             code
         );
@@ -1730,7 +1736,7 @@ mod tests {
     #[test]
     fn test_update_where_clause_pg() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("WHERE id = $3"));
+        assert!(code.contains("WHERE \"id\" = $3"));
     }
 
     #[test]
@@ -1744,12 +1750,12 @@ mod tests {
     fn test_update_set_clause_mysql() {
         let code = gen(&standard_entity(), DatabaseKind::Mysql);
         assert!(
-            code.contains("COALESCE(?, name)"),
+            code.contains("COALESCE(?, `name`)"),
             "Expected COALESCE for MySQL:\n{}",
             code
         );
         assert!(
-            code.contains("COALESCE(?, email)"),
+            code.contains("COALESCE(?, `email`)"),
             "Expected COALESCE for email in MySQL:\n{}",
             code
         );
@@ -1759,7 +1765,7 @@ mod tests {
     fn test_update_set_clause_sqlite() {
         let code = gen(&standard_entity(), DatabaseKind::Sqlite);
         assert!(
-            code.contains("COALESCE(?, name)"),
+            code.contains("COALESCE(?, \"name\")"),
             "Expected COALESCE for SQLite:\n{}",
             code
         );
@@ -1825,9 +1831,9 @@ mod tests {
     #[test]
     fn test_overwrite_set_clause_pg() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("name = $1,"));
-        assert!(code.contains("email = $2"));
-        assert!(code.contains("WHERE id = $3"));
+        assert!(code.contains("\"name\" = $1,"));
+        assert!(code.contains("\"email\" = $2"));
+        assert!(code.contains("WHERE \"id\" = $3"));
     }
 
     #[test]
@@ -1892,8 +1898,8 @@ mod tests {
     #[test]
     fn test_delete_where_pk() {
         let code = gen(&standard_entity(), DatabaseKind::Postgres);
-        assert!(code.contains("DELETE FROM users"));
-        assert!(code.contains("WHERE id = $1"));
+        assert!(code.contains("DELETE FROM \"users\""));
+        assert!(code.contains("WHERE \"id\" = $1"));
     }
 
     #[test]
@@ -2625,8 +2631,8 @@ mod tests {
     fn junction_entity() -> ParsedEntity {
         ParsedEntity {
             struct_name: "AnalysisRecord".to_string(),
-            table_name: "analysis.analysis__record".to_string(),
-            schema_name: None,
+            table_name: "analysis__record".to_string(),
+            schema_name: Some("analysis".to_string()),
             is_view: false,
             fields: vec![
                 make_field("record_id", "record_id", "uuid::Uuid", false, true),
@@ -2655,8 +2661,8 @@ mod tests {
             code
         );
         assert!(
-            code.contains("INSERT INTO analysis.analysis__record (record_id, analysis_id)"),
-            "Expected INSERT INTO clause:\n{}",
+            code.contains("INSERT INTO \"analysis\".\"analysis__record\" (\"record_id\", \"analysis_id\")"),
+            "Expected quoted INSERT INTO clause:\n{}",
             code
         );
         assert!(
@@ -2700,12 +2706,12 @@ mod tests {
             code
         );
         assert!(
-            code.contains("DELETE FROM analysis.analysis__record"),
+            code.contains("DELETE FROM \"analysis\".\"analysis__record\""),
             "Expected DELETE clause:\n{}",
             code
         );
         assert!(
-            code.contains("WHERE record_id = $1 AND analysis_id = $2"),
+            code.contains("WHERE \"record_id\" = $1 AND \"analysis_id\" = $2"),
             "Expected WHERE clause:\n{}",
             code
         );
@@ -2720,7 +2726,7 @@ mod tests {
             code
         );
         assert!(
-            code.contains("WHERE record_id = $1 AND analysis_id = $2"),
+            code.contains("WHERE \"record_id\" = $1 AND \"analysis_id\" = $2"),
             "Expected WHERE clause with both PK columns:\n{}",
             code
         );

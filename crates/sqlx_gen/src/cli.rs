@@ -94,6 +94,11 @@ pub struct EntitiesArgs {
     #[arg(long, default_value = "chrono")]
     pub time_crate: TimeCrate,
 
+    /// How to render PostgreSQL domains: `alias` (`pub type X = Y;`) or
+    /// `newtype` (`pub struct X(pub Y);` with `#[sqlx(transparent)]`).
+    #[arg(long, default_value = "alias")]
+    pub domain_style: DomainStyle,
+
     /// Print to stdout without writing files
     #[arg(short = 'n', long)]
     pub dry_run: bool,
@@ -234,6 +239,40 @@ pub enum DatabaseKind {
     Postgres,
     Mysql,
     Sqlite,
+}
+
+/// How a Postgres domain should be rendered in Rust.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DomainStyle {
+    /// `pub type Email = String;` — transparent alias, zero overhead.
+    #[default]
+    Alias,
+    /// `pub struct Email(pub String);` with `#[sqlx(transparent)]` — preserves
+    /// type identity so user code can attach `impl` blocks / validation.
+    Newtype,
+}
+
+impl std::str::FromStr for DomainStyle {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "alias" => Ok(Self::Alias),
+            "newtype" => Ok(Self::Newtype),
+            other => Err(format!(
+                "Unknown domain style '{}'. Expected: alias, newtype",
+                other
+            )),
+        }
+    }
+}
+
+impl std::fmt::Display for DomainStyle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Alias => write!(f, "alias"),
+            Self::Newtype => write!(f, "newtype"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -379,6 +418,7 @@ mod tests {
             exclude_tables: None,
             views: false,
             time_crate: TimeCrate::Chrono,
+            domain_style: DomainStyle::Alias,
             dry_run: false,
         }
     }

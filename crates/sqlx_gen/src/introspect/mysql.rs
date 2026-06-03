@@ -69,13 +69,13 @@ async fn fetch_tables(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableI
     let mut current_key: Option<(String, String)> = None;
 
     for (schema, table, col_name, data_type, column_type, nullable, ordinal, column_key) in rows {
-        let schema = String::from_utf8(schema).expect("Could not convert schema name from UTF8 bytes");
-        let table = String::from_utf8(table).expect("Could not convert schema name from UTF8 bytes");
-        let col_name = String::from_utf8(col_name).expect("Could not convert col_name name from UTF8 bytes");
-        let data_type = String::from_utf8(data_type).expect("Could not convert data_type name from UTF8 bytes");
-        let column_type = String::from_utf8(column_type).expect("Could not convert column_type name from UTF8 bytes");
-        let nullable = String::from_utf8(nullable).expect("Could not convert nullable name from UTF8 bytes");
-        let column_key = String::from_utf8(column_key).expect("Could not convert column_key name from UTF8 bytes");
+        let schema = utf8_field(schema, "TABLE_SCHEMA")?;
+        let table = utf8_field(table, "TABLE_NAME")?;
+        let col_name = utf8_field(col_name, "COLUMN_NAME")?;
+        let data_type = utf8_field(data_type, "DATA_TYPE")?;
+        let column_type = utf8_field(column_type, "COLUMN_TYPE")?;
+        let nullable = utf8_field(nullable, "IS_NULLABLE")?;
+        let column_key = utf8_field(column_key, "COLUMN_KEY")?;
 
         let key = (schema.clone(), table.clone());
         if current_key.as_ref() != Some(&key) {
@@ -86,7 +86,12 @@ async fn fetch_tables(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableI
                 columns: Vec::new(),
             });
         }
-        tables.last_mut().unwrap().columns.push(ColumnInfo {
+        let last = tables.last_mut().ok_or_else(|| {
+            crate::error::Error::Config(
+                "Internal sqlx-gen bug: tables vector empty after push".to_string(),
+            )
+        })?;
+        last.columns.push(ColumnInfo {
             name: col_name,
             data_type,
             udt_name: column_type,
@@ -99,6 +104,18 @@ async fn fetch_tables(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableI
     }
 
     Ok(tables)
+}
+
+/// Decode a MySQL `Vec<u8>` metadata field as UTF-8, returning a structured
+/// error instead of panicking if the bytes are invalid.
+fn utf8_field(bytes: Vec<u8>, field: &str) -> Result<String> {
+    String::from_utf8(bytes).map_err(|_| {
+        crate::error::Error::Config(format!(
+            "Database returned non-UTF8 bytes for MySQL information_schema field '{}'. \
+             sqlx-gen requires UTF-8 metadata.",
+            field
+        ))
+    })
 }
 
 async fn fetch_views(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableInfo>> {
@@ -143,7 +160,12 @@ async fn fetch_views(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableIn
                 columns: Vec::new(),
             });
         }
-        views.last_mut().unwrap().columns.push(ColumnInfo {
+        let last = views.last_mut().ok_or_else(|| {
+            crate::error::Error::Config(
+                "Internal sqlx-gen bug: views vector empty after push".to_string(),
+            )
+        })?;
+        last.columns.push(ColumnInfo {
             name: col_name,
             data_type,
             udt_name: column_type,

@@ -52,7 +52,7 @@ pub fn generate_struct(
                 imports.insert(imp.clone());
             }
 
-            let field_name_snake = col.name.to_snake_case();
+            let field_name_snake = sanitize_rust_ident(&col.name.to_snake_case());
             // If the field name is a Rust keyword, prefix with table name
             // e.g. column "type" on table "connector" → "connector_type"
             let (effective_name, needs_rename) = if is_rust_keyword(&field_name_snake) {
@@ -123,6 +123,28 @@ pub fn generate_struct(
     };
 
     (tokens, imports)
+}
+
+/// Sanitize a candidate Rust identifier:
+/// - replace any character that is not ascii-alphanumeric or '_' with '_'
+/// - prefix with '_' if the result starts with a digit
+/// - fall back to "_field" if the input is empty
+///
+/// Lets sqlx-gen survive columns named `user-id`, `created at`, `123`, etc.
+/// — they still need a `#[sqlx(rename = "<original>")]` to roundtrip the DB
+/// column, which the caller handles via the `changed` flag.
+pub(crate) fn sanitize_rust_ident(name: &str) -> String {
+    if name.is_empty() {
+        return "_field".to_string();
+    }
+    let mut out: String = name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+        .collect();
+    if out.starts_with(|c: char| c.is_ascii_digit()) {
+        out.insert(0, '_');
+    }
+    out
 }
 
 /// Detect if a column uses a custom SQL type (enum or composite) and return the qualified
@@ -516,5 +538,48 @@ mod tests {
         let code = gen(&table);
         assert!(code.contains("pub name: String"));
         assert!(!code.contains("sql_type"));
+    }
+
+    // ========== sanitize_rust_ident ==========
+
+    #[test]
+    fn test_sanitize_replaces_dash() {
+        assert_eq!(sanitize_rust_ident("user-id"), "user_id");
+    }
+
+    #[test]
+    fn test_sanitize_replaces_space() {
+        assert_eq!(sanitize_rust_ident("created at"), "created_at");
+    }
+
+    #[test]
+    fn test_sanitize_replaces_dot() {
+        assert_eq!(sanitize_rust_ident("a.b"), "a_b");
+    }
+
+    #[test]
+    fn test_sanitize_prefixes_leading_digit() {
+        assert_eq!(sanitize_rust_ident("123abc"), "_123abc");
+    }
+
+    #[test]
+    fn test_sanitize_empty_becomes_placeholder() {
+        assert_eq!(sanitize_rust_ident(""), "_field");
+    }
+
+    #[test]
+    fn test_sanitize_leaves_valid_ident_unchanged() {
+        assert_eq!(sanitize_rust_ident("user_id"), "user_id");
+        assert_eq!(sanitize_rust_ident("_private"), "_private");
+    }
+
+    #[test]
+    fn test_column_with_dash_generates_valid_rust() {
+        let table = make_table("users", vec![make_col("user-id", "int4", false)]);
+        let code = gen(&table);
+        // Must produce a Rust-legal identifier; renamed back to the original via #[sqlx(rename)]
+        assert!(code.contains("pub user_id:") || code.contains("user_id:"),
+            "expected sanitized identifier, got:\n{}", code);
+        assert!(code.contains("sqlx(rename = \"user-id\")"));
     }
 }

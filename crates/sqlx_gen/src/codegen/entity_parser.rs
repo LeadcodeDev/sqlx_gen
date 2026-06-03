@@ -45,9 +45,8 @@ pub struct ParsedEntity {
 /// Parse an entity struct from a `.rs` file on disk.
 pub fn parse_entity_file(path: &Path) -> crate::error::Result<ParsedEntity> {
     let source = std::fs::read_to_string(path).map_err(crate::error::Error::Io)?;
-    parse_entity_source(&source).map_err(|e| {
-        crate::error::Error::Config(format!("{}: {}", path.display(), e))
-    })
+    parse_entity_source(&source)
+        .map_err(|e| crate::error::Error::Config(format!("{}: {}", path.display(), e)))
 }
 
 /// Parse an entity struct from a Rust source string.
@@ -127,13 +126,11 @@ fn extract_entity(item: &syn::ItemStruct) -> Result<ParsedEntity, String> {
     let table_name = table_name.unwrap_or_else(|| struct_name.clone());
 
     let fields = match &item.fields {
-        syn::Fields::Named(named) => {
-            named
-                .named
-                .iter()
-                .map(extract_field)
-                .collect::<Result<Vec<_>, _>>()?
-        }
+        syn::Fields::Named(named) => named
+            .named
+            .iter()
+            .map(extract_field)
+            .collect::<Result<Vec<_>, _>>()?,
         _ => return Err("Expected named fields".to_string()),
     };
 
@@ -149,7 +146,9 @@ fn extract_entity(item: &syn::ItemStruct) -> Result<ParsedEntity, String> {
 
 /// Parse `#[sqlx_gen(kind = "...", schema = "...", table = "...")]` from struct attributes.
 /// Returns (kind, schema_name, table_name).
-fn parse_sqlx_gen_struct_attrs(attrs: &[syn::Attribute]) -> (Option<String>, Option<String>, Option<String>) {
+fn parse_sqlx_gen_struct_attrs(
+    attrs: &[syn::Attribute],
+) -> (Option<String>, Option<String>, Option<String>) {
     let mut kind = None;
     let mut schema_name = None;
     let mut table_name = None;
@@ -194,14 +193,11 @@ fn extract_attr_value(tokens: &str, key: &str) -> Option<String> {
 
 /// Extract a ParsedField from a syn::Field.
 fn extract_field(field: &syn::Field) -> Result<ParsedField, String> {
-    let rust_name = field
-        .ident
-        .as_ref()
-        .ok_or("Unnamed field")?
-        .to_string();
+    let rust_name = field.ident.as_ref().ok_or("Unnamed field")?.to_string();
 
     let column_name = get_sqlx_rename(&field.attrs).unwrap_or_else(|| rust_name.clone());
-    let (is_primary_key, sql_type, is_sql_array, column_default) = parse_sqlx_gen_field_attrs(&field.attrs);
+    let (is_primary_key, sql_type, is_sql_array, column_default) =
+        parse_sqlx_gen_field_attrs(&field.attrs);
 
     let rust_type = field.ty.to_token_stream().to_string();
     let (is_nullable, inner_type) = extract_option_type(&field.ty);
@@ -226,7 +222,9 @@ fn extract_field(field: &syn::Field) -> Result<ParsedField, String> {
 
 /// Parse `#[sqlx_gen(...)]` attributes on a field.
 /// Returns (is_primary_key, sql_type, is_sql_array, column_default).
-fn parse_sqlx_gen_field_attrs(attrs: &[syn::Attribute]) -> (bool, Option<String>, bool, Option<String>) {
+fn parse_sqlx_gen_field_attrs(
+    attrs: &[syn::Attribute],
+) -> (bool, Option<String>, bool, Option<String>) {
     let mut is_pk = false;
     let mut sql_type = None;
     let mut is_array = false;
@@ -674,7 +672,10 @@ mod tests {
         "#;
         let entity = parse_entity_source(source).unwrap();
         let status = &entity.fields[1];
-        assert_eq!(status.column_default, Some("'idle'::task_status".to_string()));
+        assert_eq!(
+            status.column_default,
+            Some("'idle'::task_status".to_string())
+        );
     }
 
     #[test]

@@ -232,7 +232,11 @@ mod tests {
         let result = check_variant_collisions(&e);
         assert!(result.is_err(), "must detect collision");
         let msg = result.unwrap_err().to_string();
-        assert!(msg.contains("FooBar"), "error must mention conflicting Rust ident, got: {}", msg);
+        assert!(
+            msg.contains("FooBar"),
+            "error must mention conflicting Rust ident, got: {}",
+            msg
+        );
         assert!(msg.contains("foo bar") || msg.contains("foo_bar"));
     }
 
@@ -290,10 +294,16 @@ mod tests {
         };
         let (tokens, _) = generate_enum(&e, DatabaseKind::Postgres, &[]);
         let code = parse_and_format(&tokens).unwrap();
-        assert!(code.contains("sqlx(type_name = \"role\")"),
-            "type_name must be unqualified for sqlx 0.8 compatibility, got:\n{}", code);
-        assert!(!code.contains("\"auth.role\""),
-            "type_name must NOT include schema; got:\n{}", code);
+        assert!(
+            code.contains("sqlx(type_name = \"role\")"),
+            "type_name must be unqualified for sqlx 0.8 compatibility, got:\n{}",
+            code
+        );
+        assert!(
+            !code.contains("\"auth.role\""),
+            "type_name must NOT include schema; got:\n{}",
+            code
+        );
     }
 
     #[test]
@@ -437,7 +447,11 @@ mod tests {
         let e = EnumInfo {
             schema_name: "public".to_string(),
             name: "task_status".to_string(),
-            variants: vec!["idle".to_string(), "running".to_string(), "done".to_string()],
+            variants: vec![
+                "idle".to_string(),
+                "running".to_string(),
+                "done".to_string(),
+            ],
             default_variant: Some("idle".to_string()),
         };
         let code = gen(&e, DatabaseKind::Postgres);
@@ -478,14 +492,19 @@ mod tests {
 
     #[test]
     fn test_public_schema_full_output() {
-        let e = make_enum_in_schema("public", "order_status", vec!["pending", "shipped", "delivered"]);
+        let e = make_enum_in_schema(
+            "public",
+            "order_status",
+            vec!["pending", "shipped", "delivered"],
+        );
         let code = gen(&e, DatabaseKind::Postgres);
 
         assert!(code.contains("Enum: public.order_status"));
         assert!(code.contains("pub enum OrderStatus"));
         assert!(code.contains("sqlx(type_name = \"order_status\")"));
         assert!(!code.contains("sqlx(type_name = \"public.order_status\")"));
-        assert!(code.contains("sqlx_gen(kind = \"enum\", schema = \"public\", name = \"order_status\")"));
+        assert!(code
+            .contains("sqlx_gen(kind = \"enum\", schema = \"public\", name = \"order_status\")"));
         assert!(code.contains("Pending"));
         assert!(code.contains("Shipped"));
         assert!(code.contains("Delivered"));
@@ -493,14 +512,20 @@ mod tests {
 
     #[test]
     fn test_named_schema_full_output() {
-        let e = make_enum_in_schema("analysis", "toolcall_status", vec!["PENDING", "RUNNING", "DONE"]);
+        let e = make_enum_in_schema(
+            "analysis",
+            "toolcall_status",
+            vec!["PENDING", "RUNNING", "DONE"],
+        );
         let code = gen(&e, DatabaseKind::Postgres);
 
         assert!(code.contains("Enum: analysis.toolcall_status"));
         assert!(code.contains("pub enum ToolcallStatus"));
         assert!(code.contains("sqlx(type_name = \"toolcall_status\")"));
         assert!(!code.contains("\"analysis.toolcall_status\""));
-        assert!(code.contains("sqlx_gen(kind = \"enum\", schema = \"analysis\", name = \"toolcall_status\")"));
+        assert!(code.contains(
+            "sqlx_gen(kind = \"enum\", schema = \"analysis\", name = \"toolcall_status\")"
+        ));
         assert!(code.contains("Pending"));
         assert!(code.contains("Running"));
         assert!(code.contains("Done"));
@@ -511,7 +536,11 @@ mod tests {
         let e = EnumInfo {
             schema_name: "billing".to_string(),
             name: "payment_status".to_string(),
-            variants: vec!["pending".to_string(), "paid".to_string(), "refunded".to_string()],
+            variants: vec![
+                "pending".to_string(),
+                "paid".to_string(),
+                "refunded".to_string(),
+            ],
             default_variant: Some("pending".to_string()),
         };
         let code = gen(&e, DatabaseKind::Postgres);

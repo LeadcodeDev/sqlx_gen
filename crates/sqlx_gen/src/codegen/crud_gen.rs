@@ -474,7 +474,6 @@ pub fn generate_crud_from_parsed(
             }
         };
 
-
         let sql = raw_sql_lit(&build_overwrite_sql(&set_clause, &where_clause));
         let sql_macro = raw_sql_lit(&build_overwrite_sql(&set_clause_cast, &where_clause_cast));
 
@@ -2683,7 +2682,9 @@ mod tests {
             code
         );
         assert!(
-            code.contains("INSERT INTO \"analysis\".\"analysis__record\" (\"record_id\", \"analysis_id\")"),
+            code.contains(
+                "INSERT INTO \"analysis\".\"analysis__record\" (\"record_id\", \"analysis_id\")"
+            ),
             "Expected quoted INSERT INTO clause:\n{}",
             code
         );

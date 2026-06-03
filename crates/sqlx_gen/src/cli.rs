@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "sqlx-gen", about = "Generate Rust structs from database schema")]
+#[command(
+    name = "sqlx-gen",
+    about = "Generate Rust structs from database schema"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
@@ -166,7 +169,6 @@ pub struct CrudArgs {
     #[arg(short = 'm', long, value_delimiter = ',')]
     pub methods: Vec<String>,
 
-
     /// Use sqlx::query_as!() compile-time checked macros instead of query_as::<_, T>() functions
     #[arg(short = 'q', long)]
     pub query_macro: bool,
@@ -303,7 +305,16 @@ pub struct Methods {
     pub delete: bool,
 }
 
-const ALL_METHODS: &[&str] = &["get_all", "paginate", "get", "insert", "insert_many", "update", "overwrite", "delete"];
+const ALL_METHODS: &[&str] = &[
+    "get_all",
+    "paginate",
+    "get",
+    "insert",
+    "insert_many",
+    "update",
+    "overwrite",
+    "delete",
+];
 
 impl Methods {
     /// Parse a list of method names. `"*"` enables all methods.
@@ -486,7 +497,10 @@ mod tests {
     fn test_overrides_checked_rejects_injection() {
         let args = make_entities_args_with_overrides(vec!["jsonb=Vec<u8>; fn pwned() {}"]);
         let result = args.parse_type_overrides_checked();
-        assert!(result.is_err(), "must reject value that isn't a single Rust type");
+        assert!(
+            result.is_err(),
+            "must reject value that isn't a single Rust type"
+        );
     }
 
     #[test]
@@ -569,9 +583,16 @@ mod tests {
     #[test]
     fn test_exclude_tables_set() {
         let mut args = make_entities_args_with_overrides(vec![]);
-        args.exclude_tables = Some(vec!["_migrations".to_string(), "schema_versions".to_string()]);
+        args.exclude_tables = Some(vec![
+            "_migrations".to_string(),
+            "schema_versions".to_string(),
+        ]);
         assert_eq!(args.exclude_tables.as_ref().unwrap().len(), 2);
-        assert!(args.exclude_tables.as_ref().unwrap().contains(&"_migrations".to_string()));
+        assert!(args
+            .exclude_tables
+            .as_ref()
+            .unwrap()
+            .contains(&"_migrations".to_string()));
     }
 
     // ========== methods ==========
@@ -671,7 +692,10 @@ mod tests {
     #[test]
     fn test_module_path_nested() {
         let p = PathBuf::from("src/db/entities/agent.rs");
-        assert_eq!(module_path_from_file(&p).unwrap(), "crate::db::entities::agent");
+        assert_eq!(
+            module_path_from_file(&p).unwrap(),
+            "crate::db::entities::agent"
+        );
     }
 
     #[test]

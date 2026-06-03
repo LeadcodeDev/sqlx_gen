@@ -71,13 +71,13 @@ mod tests {
     fn gen(domain: &DomainInfo) -> (String, BTreeSet<String>) {
         let schema = SchemaInfo::default();
         let (tokens, imports) = generate_domain(domain, DatabaseKind::Postgres, &schema, &HashMap::new(), TimeCrate::Chrono);
-        (parse_and_format(&tokens), imports)
+        (parse_and_format(&tokens).unwrap(), imports)
     }
 
     fn gen_with_overrides(domain: &DomainInfo, overrides: &HashMap<String, String>) -> (String, BTreeSet<String>) {
         let schema = SchemaInfo::default();
         let (tokens, imports) = generate_domain(domain, DatabaseKind::Postgres, &schema, overrides, TimeCrate::Chrono);
-        (parse_and_format(&tokens), imports)
+        (parse_and_format(&tokens).unwrap(), imports)
     }
 
     #[test]

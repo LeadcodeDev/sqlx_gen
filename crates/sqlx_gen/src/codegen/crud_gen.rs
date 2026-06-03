@@ -1279,7 +1279,7 @@ mod tests {
             false,
             PoolVisibility::Private,
         );
-        parse_and_format(&tokens)
+        parse_and_format(&tokens).unwrap()
     }
 
     fn gen_macro(entity: &ParsedEntity, db: DatabaseKind) -> String {
@@ -1292,7 +1292,7 @@ mod tests {
             true,
             PoolVisibility::Private,
         );
-        parse_and_format(&tokens)
+        parse_and_format(&tokens).unwrap()
     }
 
     fn gen_with_methods(entity: &ParsedEntity, db: DatabaseKind, methods: &Methods) -> String {
@@ -1304,7 +1304,7 @@ mod tests {
             false,
             PoolVisibility::Private,
         );
-        parse_and_format(&tokens)
+        parse_and_format(&tokens).unwrap()
     }
 
     fn gen_with_tab_spaces(entity: &ParsedEntity, db: DatabaseKind, tab_spaces: usize) -> String {
@@ -1317,7 +1317,7 @@ mod tests {
             false,
             PoolVisibility::Private,
         );
-        parse_and_format_with_tab_spaces(&tokens, tab_spaces)
+        parse_and_format_with_tab_spaces(&tokens, tab_spaces).unwrap()
     }
 
     // --- basic structure ---
@@ -1351,7 +1351,7 @@ mod tests {
             false,
             PoolVisibility::Pub,
         );
-        let code = parse_and_format(&tokens);
+        let code = parse_and_format(&tokens).unwrap();
         assert!(
             code.contains("pub pool: sqlx::PgPool") || code.contains("pub pool: sqlx :: PgPool")
         );
@@ -1368,7 +1368,7 @@ mod tests {
             false,
             PoolVisibility::PubCrate,
         );
-        let code = parse_and_format(&tokens);
+        let code = parse_and_format(&tokens).unwrap();
         assert!(
             code.contains("pub(crate) pool: sqlx::PgPool")
                 || code.contains("pub(crate) pool: sqlx :: PgPool")
@@ -2245,7 +2245,7 @@ mod tests {
             true,
             PoolVisibility::Private,
         );
-        let code = parse_and_format(&tokens);
+        let code = parse_and_format(&tokens).unwrap();
         assert!(code.contains("query_as!"));
         assert!(!code.contains("query_as::<"));
     }
@@ -2315,7 +2315,7 @@ mod tests {
             true,
             PoolVisibility::Private,
         );
-        let code = parse_and_format(&tokens);
+        let code = parse_and_format(&tokens).unwrap();
         assert!(!code.contains(".bind("));
     }
 
@@ -2384,7 +2384,7 @@ mod tests {
             true,
             PoolVisibility::Private,
         );
-        parse_and_format(&tokens)
+        parse_and_format(&tokens).unwrap()
     }
 
     #[test]
@@ -2472,7 +2472,7 @@ mod tests {
             true,
             PoolVisibility::Private,
         );
-        let code = parse_and_format(&tokens);
+        let code = parse_and_format(&tokens).unwrap();
         // SELECT queries should use runtime query_as, not macro
         assert!(code.contains("query_as::<"));
         assert!(!code.contains("query_as!("));
@@ -2489,7 +2489,7 @@ mod tests {
             true,
             PoolVisibility::Private,
         );
-        let code = parse_and_format(&tokens);
+        let code = parse_and_format(&tokens).unwrap();
         // DELETE still uses query! macro
         assert!(code.contains("query!"));
     }
@@ -2552,7 +2552,7 @@ mod tests {
             true,
             PoolVisibility::Private,
         );
-        let code = parse_and_format(&tokens);
+        let code = parse_and_format(&tokens).unwrap();
         assert!(code.contains("as_slice()"));
     }
 
@@ -2567,7 +2567,7 @@ mod tests {
             true,
             PoolVisibility::Private,
         );
-        let code = parse_and_format(&tokens);
+        let code = parse_and_format(&tokens).unwrap();
         // Should have as_slice() for insert and update
         let count = code.matches("as_slice()").count();
         assert!(
@@ -2588,7 +2588,7 @@ mod tests {
             false,
             PoolVisibility::Private,
         );
-        let code = parse_and_format(&tokens);
+        let code = parse_and_format(&tokens).unwrap();
         // Runtime mode uses .bind() so no as_slice needed
         assert!(!code.contains("as_slice()"));
     }
@@ -2618,7 +2618,7 @@ mod tests {
             true,
             PoolVisibility::Private,
         );
-        let code = parse_and_format(&tokens);
+        let code = parse_and_format(&tokens).unwrap();
         assert!(
             code.contains("as_slice()"),
             "Expected as_slice() in generated code:\n{}",

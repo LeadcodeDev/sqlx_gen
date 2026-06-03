@@ -1,3 +1,43 @@
 [workspace]
 members = ["crates/sqlx_gen", "crates/sqlx_gen_macros"]
 resolver = "2"
+
+# Shared package metadata. Each crate inherits via `*.workspace = true`,
+# so version bumps happen here and propagate everywhere — sqlx-gen and
+# sqlx-gen-macros can never drift apart.
+[workspace.package]
+version = "0.5.5"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT"
+repository = "https://github.com/LeadcodeDev/sqlx-gen"
+keywords = ["sqlx", "codegen", "postgres", "mysql", "sqlite"]
+categories = ["database", "development-tools"]
+
+# Shared dependency definitions. The internal sqlx-gen-macros entry pins the
+# version to whatever sqlx_gen itself ships, so the proc-macro and runtime
+# crates are always released together.
+[workspace.dependencies]
+sqlx-gen-macros = { path = "crates/sqlx_gen_macros", version = "0.5.5" }
+sqlx = { version = "0.8", features = [
+    "runtime-tokio",
+    "tls-rustls-ring",
+    "postgres",
+    "mysql",
+    "sqlite",
+    "chrono",
+    "uuid",
+    "json",
+] }
+tokio = { version = "1", features = ["full"] }
+clap = { version = "4", features = ["derive", "env"] }
+heck = "0.5"
+thiserror = "2"
+quote = "1"
+proc-macro2 = "1"
+syn = "2"
+prettyplease = "0.2"
+log = "0.4"
+env_logger = "0.11"
+tempfile = "3"
+pretty_assertions = "1"

@@ -106,6 +106,41 @@ impl EntitiesArgs {
             })
             .collect()
     }
+
+    /// Parse and validate `--type-overrides`. Each value must be a syntactically
+    /// valid Rust type (parseable by `syn::parse_str::<syn::Type>`). Prevents
+    /// injection of arbitrary Rust into generated code.
+    pub fn parse_type_overrides_checked(&self) -> crate::error::Result<HashMap<String, String>> {
+        let mut map = HashMap::new();
+        for s in &self.type_overrides {
+            let (k, v) = s.split_once('=').ok_or_else(|| {
+                crate::error::Error::Config(format!(
+                    "Invalid --type-overrides entry '{}'. Expected format: sql_type=RustType",
+                    s
+                ))
+            })?;
+            if k.is_empty() {
+                return Err(crate::error::Error::Config(format!(
+                    "Empty SQL type key in --type-overrides entry '{}'",
+                    s
+                )));
+            }
+            if v.trim().is_empty() {
+                return Err(crate::error::Error::Config(format!(
+                    "Empty Rust type value in --type-overrides entry '{}'",
+                    s
+                )));
+            }
+            syn::parse_str::<syn::Type>(v).map_err(|e| {
+                crate::error::Error::Config(format!(
+                    "Invalid Rust type in --type-overrides value '{}': {}",
+                    v, e
+                ))
+            })?;
+            map.insert(k.to_string(), v.to_string());
+        }
+        Ok(map)
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -417,6 +452,59 @@ mod tests {
     fn test_overrides_empty() {
         let args = make_entities_args_with_overrides(vec![]);
         assert!(args.parse_type_overrides().is_empty());
+    }
+
+    // ========== parse_type_overrides_checked ==========
+
+    #[test]
+    fn test_overrides_checked_empty_ok() {
+        let args = make_entities_args_with_overrides(vec![]);
+        assert!(args.parse_type_overrides_checked().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_overrides_checked_simple_type() {
+        let args = make_entities_args_with_overrides(vec!["jsonb=MyJson"]);
+        let map = args.parse_type_overrides_checked().unwrap();
+        assert_eq!(map.get("jsonb").unwrap(), "MyJson");
+    }
+
+    #[test]
+    fn test_overrides_checked_path_type() {
+        let args = make_entities_args_with_overrides(vec!["jsonb=crate::types::MyJson"]);
+        let map = args.parse_type_overrides_checked().unwrap();
+        assert_eq!(map.get("jsonb").unwrap(), "crate::types::MyJson");
+    }
+
+    #[test]
+    fn test_overrides_checked_generic_type() {
+        let args = make_entities_args_with_overrides(vec!["bytea=Vec<u8>"]);
+        assert!(args.parse_type_overrides_checked().is_ok());
+    }
+
+    #[test]
+    fn test_overrides_checked_rejects_injection() {
+        let args = make_entities_args_with_overrides(vec!["jsonb=Vec<u8>; fn pwned() {}"]);
+        let result = args.parse_type_overrides_checked();
+        assert!(result.is_err(), "must reject value that isn't a single Rust type");
+    }
+
+    #[test]
+    fn test_overrides_checked_rejects_no_equals() {
+        let args = make_entities_args_with_overrides(vec!["noequals"]);
+        assert!(args.parse_type_overrides_checked().is_err());
+    }
+
+    #[test]
+    fn test_overrides_checked_rejects_empty_value() {
+        let args = make_entities_args_with_overrides(vec!["jsonb="]);
+        assert!(args.parse_type_overrides_checked().is_err());
+    }
+
+    #[test]
+    fn test_overrides_checked_rejects_empty_key() {
+        let args = make_entities_args_with_overrides(vec!["=Foo"]);
+        assert!(args.parse_type_overrides_checked().is_err());
     }
 
     #[test]

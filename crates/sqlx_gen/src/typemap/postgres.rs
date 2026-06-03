@@ -32,9 +32,15 @@ pub fn is_builtin(udt_name: &str) -> bool {
 }
 
 pub fn map_type(udt_name: &str, schema_info: &SchemaInfo, time_crate: TimeCrate) -> RustType {
-    // Handle array types (prefixed with '_' in PG)
+    // Handle array types: PG's information_schema may report them either as
+    // `_int4` (information_schema.columns.udt_name) or `integer[]`
+    // (pg_catalog.format_type). Both should produce Vec<T>.
     if let Some(inner) = udt_name.strip_prefix('_') {
         let inner_type = map_type(inner, schema_info, time_crate);
+        return inner_type.wrap_vec();
+    }
+    if let Some(inner) = udt_name.strip_suffix("[]") {
+        let inner_type = map_type(inner.trim(), schema_info, time_crate);
         return inner_type.wrap_vec();
     }
 
@@ -345,6 +351,16 @@ mod tests {
     #[test]
     fn test_array_int4() {
         assert_eq!(map_type("_int4", &empty_schema(), TimeCrate::Chrono).path, "Vec<i32>");
+    }
+
+    #[test]
+    fn test_array_bracket_notation() {
+        assert_eq!(map_type("integer[]", &empty_schema(), TimeCrate::Chrono).path, "Vec<i32>");
+    }
+
+    #[test]
+    fn test_array_bracket_text() {
+        assert_eq!(map_type("text[]", &empty_schema(), TimeCrate::Chrono).path, "Vec<String>");
     }
 
     #[test]

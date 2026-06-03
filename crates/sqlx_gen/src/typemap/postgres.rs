@@ -26,6 +26,7 @@ pub fn is_builtin(udt_name: &str) -> bool {
             | "uuid"
             | "json" | "jsonb"
             | "inet" | "cidr"
+            | "interval"
             | "oid"
     )
 }
@@ -94,6 +95,10 @@ pub fn map_type(udt_name: &str, schema_info: &SchemaInfo, time_crate: TimeCrate)
         "inet" | "cidr" => {
             RustType::with_import("IpNetwork", "use ipnetwork::IpNetwork;")
         }
+        "interval" => RustType::with_import(
+            "PgInterval",
+            "use sqlx::postgres::types::PgInterval;",
+        ),
         "oid" => RustType::simple("u32"),
         _ => RustType::simple("String"), // fallback
     }
@@ -326,6 +331,13 @@ mod tests {
     #[test]
     fn test_oid() {
         assert_eq!(map_type("oid", &empty_schema(), TimeCrate::Chrono).path, "u32");
+    }
+
+    #[test]
+    fn test_interval_uses_pg_interval() {
+        let rt = map_type("interval", &empty_schema(), TimeCrate::Chrono);
+        assert_eq!(rt.path, "PgInterval");
+        assert!(rt.needs_import.as_ref().unwrap().contains("PgInterval"));
     }
 
     // --- arrays ---

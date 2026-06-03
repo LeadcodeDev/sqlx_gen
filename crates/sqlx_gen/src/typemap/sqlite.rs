@@ -38,7 +38,9 @@ pub fn map_type(declared_type: &str, time_crate: TimeCrate) -> RustType {
         };
     }
     if upper.contains("NUMERIC") || upper.contains("DECIMAL") {
-        return RustType::simple("f64");
+        // f64 would silently lose precision for currency-style values. sqlx exposes
+        // the same Decimal type for sqlite as for postgres/mysql.
+        return RustType::with_import("Decimal", "use rust_decimal::Decimal;");
     }
 
     // Default: SQLite is loosely typed
@@ -164,13 +166,16 @@ mod tests {
     }
 
     #[test]
-    fn test_numeric() {
-        assert_eq!(map_type("NUMERIC", TimeCrate::Chrono).path, "f64");
+    fn test_numeric_uses_decimal() {
+        let rt = map_type("NUMERIC", TimeCrate::Chrono);
+        assert_eq!(rt.path, "Decimal");
+        assert!(rt.needs_import.as_ref().unwrap().contains("rust_decimal"));
     }
 
     #[test]
-    fn test_decimal() {
-        assert_eq!(map_type("DECIMAL", TimeCrate::Chrono).path, "f64");
+    fn test_decimal_uses_decimal() {
+        let rt = map_type("DECIMAL", TimeCrate::Chrono);
+        assert_eq!(rt.path, "Decimal");
     }
 
     #[test]

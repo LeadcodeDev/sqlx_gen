@@ -219,8 +219,11 @@ mod tests {
     fn test_newtype_emits_tuple_struct() {
         let d = make_domain("email", "text");
         let (code, _) = gen_newtype(&d);
-        assert!(code.contains("pub struct Email(pub String)"),
-            "newtype must wrap the base type in a tuple struct, got:\n{}", code);
+        assert!(
+            code.contains("pub struct Email(pub String)"),
+            "newtype must wrap the base type in a tuple struct, got:\n{}",
+            code
+        );
     }
 
     #[test]

@@ -248,16 +248,12 @@ fn extract_enum_defaults(schema_info: &SchemaInfo) -> HashMap<String, String> {
 /// Handles formats like `'idle'::task_status`, `'idle'::public.task_status`.
 fn parse_pg_enum_default(default_expr: &str) -> Option<String> {
     // Pattern: 'value'::some_type
-    let stripped = default_expr.trim();
-    if stripped.starts_with('\'') {
-        if let Some(end_quote) = stripped[1..].find('\'') {
-            let value = &stripped[1..1 + end_quote];
-            // Verify there's a :: cast after the closing quote
-            let rest = &stripped[2 + end_quote..];
-            if rest.starts_with("::") {
-                return Some(value.to_string());
-            }
-        }
+    let after_opening = default_expr.trim().strip_prefix('\'')?;
+    let end_quote = after_opening.find('\'')?;
+    let value = &after_opening[..end_quote];
+    let rest = &after_opening[end_quote + 1..];
+    if rest.starts_with("::") {
+        return Some(value.to_string());
     }
     None
 }
@@ -398,10 +394,6 @@ fn is_import_used(import: &str, code: &str) -> bool {
     true
 }
 
-/// Post-process formatted code to:
-/// - Add blank lines between enum variants with `#[sqlx(rename`
-/// - Add blank lines between top-level items (structs, impls)
-/// - Add blank lines between logical blocks inside async methods
 /// Indent the content of multi-line raw string literals (`r#"..."#`) so SQL
 /// reads naturally in generated code. All SQL raw strings live inside `impl`
 /// methods, so content is indented at a fixed 2-level depth and relative

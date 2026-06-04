@@ -5,6 +5,7 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
 use crate::cli::{DatabaseKind, TimeCrate};
+use crate::codegen::naming::singularize;
 use crate::codegen::{imports_for_derives, is_rust_keyword};
 use crate::introspect::{SchemaInfo, TableInfo};
 use crate::typemap;
@@ -22,7 +23,9 @@ pub fn generate_struct(
     for imp in imports_for_derives(extra_derives) {
         imports.insert(imp);
     }
-    let struct_name = format_ident!("{}", table.name.to_upper_camel_case());
+    // Tables are conventionally plural ("users"), structs singular ("User"),
+    // matching the Rust ORM ecosystem (Diesel, SeaORM) and ActiveRecord.
+    let struct_name = format_ident!("{}", singularize(&table.name).to_upper_camel_case());
 
     // Build derive list
     imports.insert("use serde::{Serialize, Deserialize};".to_string());
@@ -303,17 +306,42 @@ mod tests {
     }
 
     #[test]
-    fn test_struct_name_pascal_case() {
+    fn test_struct_name_pascal_case_and_singular() {
         let table = make_table("user_roles", vec![make_col("id", "int4", false)]);
         let code = gen(&table);
-        assert!(code.contains("pub struct UserRoles"));
+        // Plural table → singular struct, snake_case → PascalCase.
+        assert!(
+            code.contains("pub struct UserRole"),
+            "expected singular PascalCase struct name, got:\n{}",
+            code
+        );
+        assert!(!code.contains("pub struct UserRoles"));
     }
 
     #[test]
-    fn test_struct_name_simple() {
+    fn test_struct_name_is_singular() {
         let table = make_table("users", vec![make_col("id", "int4", false)]);
         let code = gen(&table);
-        assert!(code.contains("pub struct Users"));
+        assert!(
+            code.contains("pub struct User"),
+            "table 'users' must produce singular 'User' struct, got:\n{}",
+            code
+        );
+        assert!(!code.contains("pub struct Users"));
+    }
+
+    #[test]
+    fn test_struct_name_already_singular_unchanged() {
+        let table = make_table("agent_connector", vec![make_col("id", "int4", false)]);
+        let code = gen(&table);
+        assert!(code.contains("pub struct AgentConnector"));
+    }
+
+    #[test]
+    fn test_struct_name_uncountable_unchanged() {
+        let table = make_table("news", vec![make_col("id", "int4", false)]);
+        let code = gen(&table);
+        assert!(code.contains("pub struct News"));
     }
 
     // --- nullable ---

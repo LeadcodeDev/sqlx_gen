@@ -4,6 +4,7 @@ pub mod domain_gen;
 pub mod entity_parser;
 pub mod enum_gen;
 pub mod identifiers;
+pub mod naming;
 pub mod struct_gen;
 
 use std::collections::{BTreeSet, HashMap};

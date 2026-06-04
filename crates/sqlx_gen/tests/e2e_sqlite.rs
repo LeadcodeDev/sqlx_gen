@@ -35,7 +35,7 @@ async fn test_simple_table_generates_struct() {
 }
 
 #[tokio::test]
-async fn test_struct_name_pascal_case() {
+async fn test_struct_name_pascal_case_singular() {
     let pool = setup_pool().await;
     exec(&pool, "CREATE TABLE user_profiles (id INTEGER NOT NULL)").await;
     let schema = introspect(&pool, false).await.unwrap();
@@ -48,7 +48,9 @@ async fn test_struct_name_pascal_case() {
         TimeCrate::Chrono,
     )
     .unwrap();
-    assert!(files[0].code.contains("pub struct UserProfiles"));
+    // Plural table → singular struct.
+    assert!(files[0].code.contains("pub struct UserProfile"));
+    assert!(!files[0].code.contains("pub struct UserProfiles"));
 }
 
 #[tokio::test]
@@ -194,7 +196,8 @@ async fn test_view_generates_struct() {
         .iter()
         .find(|f| f.filename == "active_users.rs")
         .unwrap();
-    assert!(view_file.code.contains("pub struct ActiveUsers"));
+    // Singularized: active_users → ActiveUser.
+    assert!(view_file.code.contains("pub struct ActiveUser"));
 }
 
 #[tokio::test]
@@ -267,7 +270,8 @@ async fn test_view_pascal_case_name() {
         .iter()
         .find(|f| f.filename == "all_active_users.rs")
         .unwrap();
-    assert!(view_file.code.contains("pub struct AllActiveUsers"));
+    // Singularized: all_active_users → AllActiveUser.
+    assert!(view_file.code.contains("pub struct AllActiveUser"));
 }
 
 // --- exclude tables ---

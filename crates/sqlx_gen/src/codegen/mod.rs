@@ -1787,7 +1787,10 @@ mod tests {
         )
         .unwrap();
         let types_file = files.iter().find(|f| f.filename == "types.rs").unwrap();
-        assert!(types_file.code.contains("impl Default for TaskStatus"));
-        assert!(types_file.code.contains("Self::Idle"));
+        // Default is wired via #[derive(Default)] + #[default] on the variant,
+        // not a hand-rolled impl block.
+        assert!(types_file.code.contains("#[default]"));
+        assert!(types_file.code.contains("Default"));
+        assert!(!types_file.code.contains("impl Default for TaskStatus"));
     }
 }

@@ -57,10 +57,12 @@ pub fn generate_struct(
             }
 
             let field_name_snake = sanitize_rust_ident(&col.name.to_snake_case());
-            // If the field name is a Rust keyword, prefix with table name
-            // e.g. column "type" on table "connector" → "connector_type"
+            // If the field name is a Rust keyword, prefix with the singular
+            // form of the table name so column "type" on table "products"
+            // becomes "product_type", not "products_type".
             let (effective_name, needs_rename) = if is_rust_keyword(&field_name_snake) {
-                let prefixed = format!("{}_{}", table.name.to_snake_case(), field_name_snake);
+                let prefix = singularize(&table.name).to_snake_case();
+                let prefixed = format!("{}_{}", prefix, field_name_snake);
                 (prefixed, true)
             } else {
                 let changed = field_name_snake != col.name;
@@ -342,6 +344,44 @@ mod tests {
         let table = make_table("news", vec![make_col("id", "int4", false)]);
         let code = gen(&table);
         assert!(code.contains("pub struct News"));
+    }
+
+    #[test]
+    fn test_reserved_keyword_column_prefixed_with_singular_table() {
+        // table "products", column "type" → "product_type", NOT "products_type".
+        let table = make_table(
+            "products",
+            vec![
+                make_col("id", "int4", false),
+                make_col("type", "text", false),
+            ],
+        );
+        let code = gen(&table);
+        assert!(
+            code.contains("pub product_type:"),
+            "expected singularized prefix 'product_type', got:\n{}",
+            code
+        );
+        assert!(
+            !code.contains("pub products_type:"),
+            "must not use plural-form prefix, got:\n{}",
+            code
+        );
+        // The actual SQL column name must still be carried via #[sqlx(rename)].
+        assert!(code.contains("sqlx(rename = \"type\")"));
+    }
+
+    #[test]
+    fn test_reserved_keyword_column_on_already_singular_table() {
+        let table = make_table(
+            "connector",
+            vec![
+                make_col("id", "int4", false),
+                make_col("type", "text", false),
+            ],
+        );
+        let code = gen(&table);
+        assert!(code.contains("pub connector_type:"));
     }
 
     // --- nullable ---

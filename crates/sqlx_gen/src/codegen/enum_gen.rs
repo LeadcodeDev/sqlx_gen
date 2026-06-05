@@ -88,10 +88,19 @@ pub fn generate_enum_with_schema(
         quote! { sqlx::Type },
         quote! { SqlxGen },
     ];
+    // Use the standard `#[derive(Default)] + #[default]` pattern (stable since
+    // 1.62) when a default variant exists, instead of hand-rolling an impl.
+    if enum_info.default_variant.is_some() {
+        derive_tokens.push(quote! { Default });
+    }
     for d in extra_derives {
         let ident = format_ident!("{}", d);
         derive_tokens.push(quote! { #ident });
     }
+    let default_variant_pascal = enum_info
+        .default_variant
+        .as_ref()
+        .map(|v| v.to_upper_camel_case());
 
     // For PG, add #[sqlx(type_name = "...")] — always unqualified.
     // sqlx 0.8's PgTypeInfo::with_name does NOT accept schema-qualified names; emitting
@@ -117,26 +126,20 @@ pub fn generate_enum_with_schema(
                 quote! {}
             };
 
+            let default_attr = if default_variant_pascal.as_deref() == Some(variant_pascal.as_str())
+            {
+                quote! { #[default] }
+            } else {
+                quote! {}
+            };
+
             quote! {
                 #rename
+                #default_attr
                 #variant_ident,
             }
         })
         .collect();
-
-    let default_impl = if let Some(ref default_variant) = enum_info.default_variant {
-        let variant_pascal = default_variant.to_upper_camel_case();
-        let variant_ident = format_ident!("{}", variant_pascal);
-        quote! {
-            impl Default for #enum_name {
-                fn default() -> Self {
-                    Self::#variant_ident
-                }
-            }
-        }
-    } else {
-        quote! {}
-    };
 
     // Postgres arrays: `#[derive(sqlx::Type)]` with `#[sqlx(type_name = "x")]`
     // already auto-generates `impl PgHasArrayType` returning `_x` in sqlx 0.8+.
@@ -160,8 +163,6 @@ pub fn generate_enum_with_schema(
         pub enum #enum_name {
             #(#variants)*
         }
-
-        #default_impl
     };
 
     (tokens, imports)
@@ -484,7 +485,7 @@ mod tests {
     // --- impl Default ---
 
     #[test]
-    fn test_default_impl_generated() {
+    fn test_default_uses_derive_and_attribute() {
         let e = EnumInfo {
             schema_name: "public".to_string(),
             name: "task_status".to_string(),
@@ -496,19 +497,40 @@ mod tests {
             default_variant: Some("idle".to_string()),
         };
         let code = gen(&e, DatabaseKind::Postgres);
-        assert!(code.contains("impl Default for TaskStatus"));
-        assert!(code.contains("Self::Idle"));
+        assert!(
+            code.contains("Default"),
+            "expected `Default` in derive list, got:\n{}",
+            code
+        );
+        assert!(
+            code.contains("#[default]"),
+            "expected #[default] attribute on the variant, got:\n{}",
+            code
+        );
+        // No hand-rolled impl Default block.
+        assert!(!code.contains("impl Default for TaskStatus"));
     }
 
     #[test]
-    fn test_no_default_impl_when_none() {
+    fn test_no_default_derive_when_no_default_variant() {
         let e = make_enum("status", vec!["active", "inactive"]);
         let code = gen(&e, DatabaseKind::Postgres);
         assert!(!code.contains("impl Default"));
+        assert!(!code.contains("#[default]"));
+        // The derive line must NOT contain a free-standing Default token.
+        let derive_line = code
+            .lines()
+            .find(|l| l.contains("#[derive"))
+            .expect("derive line");
+        assert!(
+            !derive_line.contains(", Default"),
+            "derive list should not include Default, got: {}",
+            derive_line
+        );
     }
 
     #[test]
-    fn test_default_impl_snake_case_variant() {
+    fn test_default_attribute_on_correct_variant_snake_case() {
         let e = EnumInfo {
             schema_name: "public".to_string(),
             name: "status".to_string(),
@@ -516,8 +538,20 @@ mod tests {
             default_variant: Some("in_progress".to_string()),
         };
         let code = gen(&e, DatabaseKind::Postgres);
-        assert!(code.contains("impl Default for Status"));
-        assert!(code.contains("Self::InProgress"));
+        // The `#[default]` attribute must sit directly above the `InProgress`
+        // variant — not on `Done`.
+        let in_progress_idx = code.find("InProgress").expect("InProgress");
+        let default_attr_idx = code.find("#[default]").expect("#[default]");
+        assert!(
+            default_attr_idx < in_progress_idx,
+            "#[default] must precede InProgress"
+        );
+        let between = &code[default_attr_idx..in_progress_idx];
+        assert!(
+            !between.contains("Done"),
+            "#[default] landed on the wrong variant:\n{}",
+            code
+        );
     }
 
     // --- public vs named schema integration ---
@@ -588,8 +622,10 @@ mod tests {
 
         assert!(code.contains("sqlx(type_name = \"payment_status\")"));
         assert!(!code.contains("\"billing.payment_status\""));
-        assert!(code.contains("impl Default for PaymentStatus"));
-        assert!(code.contains("Self::Pending"));
+        // Uses #[derive(Default)] + #[default] instead of a hand-rolled impl.
+        assert!(code.contains("Default"));
+        assert!(code.contains("#[default]"));
+        assert!(!code.contains("impl Default for PaymentStatus"));
     }
 
     #[test]

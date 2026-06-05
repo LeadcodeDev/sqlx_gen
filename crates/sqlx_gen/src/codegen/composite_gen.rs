@@ -5,6 +5,7 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
 use crate::cli::{DatabaseKind, TimeCrate};
+use crate::codegen::naming::singularize;
 use crate::codegen::{imports_for_derives, is_rust_keyword, rust_type_name_for};
 use crate::introspect::{CompositeTypeInfo, SchemaInfo};
 use crate::typemap;
@@ -77,7 +78,8 @@ pub fn generate_composite(
 
             let field_name_snake = col.name.to_snake_case();
             let (effective_name, needs_rename) = if is_rust_keyword(&field_name_snake) {
-                let prefixed = format!("{}_{}", composite.name.to_snake_case(), field_name_snake);
+                let prefix = singularize(&composite.name).to_snake_case();
+                let prefixed = format!("{}_{}", prefix, field_name_snake);
                 (prefixed, true)
             } else {
                 let changed = field_name_snake != col.name;

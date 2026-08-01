@@ -6,7 +6,7 @@ resolver = "2"
 # so version bumps happen here and propagate everywhere — sqlx-gen and
 # sqlx-gen-macros can never drift apart.
 [workspace.package]
-version = "0.5.8"
+version = "0.5.9"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT"
@@ -18,7 +18,7 @@ categories = ["database", "development-tools"]
 # version to whatever sqlx_gen itself ships, so the proc-macro and runtime
 # crates are always released together.
 [workspace.dependencies]
-sqlx-gen-macros = { path = "crates/sqlx_gen_macros", version = "0.5.8" }
+sqlx-gen-macros = { path = "crates/sqlx_gen_macros", version = "0.5.9" }
 sqlx = { version = "0.8", features = [
     "runtime-tokio",
     "tls-rustls-ring",

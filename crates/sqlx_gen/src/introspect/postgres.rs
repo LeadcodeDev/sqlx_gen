@@ -431,7 +431,10 @@ async fn fetch_composite_types(
     pool: &PgPool,
     schemas: &[String],
 ) -> Result<Vec<CompositeTypeInfo>> {
-    let rows = sqlx::query_as::<_, (String, String, String, String, String, i32)>(
+    // `pg_attribute.attnum` is a smallint, unlike `information_schema`'s
+    // `ordinal_position` (int4) used elsewhere in this module. sqlx does no
+    // implicit widening, so this must be decoded as i16.
+    let rows = sqlx::query_as::<_, (String, String, String, String, String, i16)>(
         r#"
         SELECT
             n.nspname AS schema_name,
@@ -483,7 +486,7 @@ async fn fetch_composite_types(
             udt_schema: None,
             is_nullable: nullable == "YES",
             is_primary_key: false,
-            ordinal_position: ordinal,
+            ordinal_position: i32::from(ordinal),
             schema_name: schema,
             column_default: None,
         });

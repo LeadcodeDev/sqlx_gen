@@ -8,53 +8,26 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # Needed by the final step, which records the released version on main.
+    permissions:
+      contents: write
     steps:
+      # fetch-depth: 0 so main is available locally for the commit-back step —
+      # a tag push otherwise checks out a detached, shallow history.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # The tag is the single source of truth for a release: the manifest is
+      # rewritten from it rather than bumped by hand beforehand, so a release
+      # can no longer fail on a tag/manifest mismatch.
       - name: Apply tag version to workspace
-        run: |
-          # The tag is the single source of truth for a release: the manifest is
-          # rewritten from it here rather than bumped by hand beforehand, so a
-          # release can no longer fail on a tag/manifest mismatch.
-          TAG_VERSION=${GITHUB_REF#refs/tags/}
-          echo "Releasing $TAG_VERSION"
+        run: .github/scripts/set-workspace-version.sh "${GITHUB_REF#refs/tags/}"
 
-          # Version is centralized in [workspace.package]; both crates inherit it
-          # via `version.workspace = true`. Written as `sed > tmp && mv` rather
-          # than `sed -i`, whose syntax differs between GNU and BSD — this form
-          # is the one exercised by the local test.
-          sed -E '/^\[workspace\.package\]/,/^\[workspace\.dependencies\]/ s/^version = "[^"]*"/version = "'"$TAG_VERSION"'"/' \
-            Cargo.toml > Cargo.toml.tmp && mv Cargo.toml.tmp Cargo.toml
-
-          # The internal pin must move in lockstep: sqlx-gen depends on
-          # sqlx-gen-macros by version, and both crates are always released
-          # together. Leaving it behind would publish a sqlx-gen requiring a
-          # macros version that never shipped.
-          sed -E 's|^(sqlx-gen-macros = \{ path = "crates/sqlx_gen_macros", version = )"[^"]*"|\1"'"$TAG_VERSION"'"|' \
-            Cargo.toml > Cargo.toml.tmp && mv Cargo.toml.tmp Cargo.toml
-
-          cargo update --workspace
-
-      - name: Verify the version was applied
-        run: |
-          # Neither sed fails loudly if its pattern stops matching, so assert on
-          # the resolved metadata: without this, a drifted manifest layout would
-          # silently republish the previous version.
-          TAG_VERSION=${GITHUB_REF#refs/tags/}
-          for pkg in sqlx-gen sqlx-gen-macros; do
-            GOT=$(cargo metadata --no-deps --format-version 1 \
-              | jq -r --arg p "$pkg" '.packages[] | select(.name==$p) | .version')
-            echo "$pkg: $GOT"
-            if [ "$GOT" != "$TAG_VERSION" ]; then
-              echo "::error::$pkg is at $GOT, expected $TAG_VERSION"
-              exit 1
-            fi
-          done
-
-      # --allow-dirty: the version above is applied in the runner and never
-      # committed, so the working tree is intentionally dirty at this point.
+      # --allow-dirty: the version above is applied in the runner and is not
+      # committed until the release has actually succeeded.
       - name: Publish sqlx-gen-macros
         run: cargo publish --allow-dirty --token ${{ secrets.CARGO_REGISTRY_TOKEN }} --package sqlx-gen-macros
 
@@ -63,3 +36,34 @@ jobs:
 
       - name: Publish sqlx-gen
         run: cargo publish --allow-dirty --token ${{ secrets.CARGO_REGISTRY_TOKEN }} --package sqlx-gen
+
+      # Deliberately last: a commit on main must never announce a release that
+      # failed to publish. Pushes made with GITHUB_TOKEN do not trigger further
+      # workflow runs, so this cannot loop back into a publish.
+      - name: Record the released version on main
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/}
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # The tag checkout is detached and may sit behind main, so re-apply the
+          # version on top of main's current state instead of reusing the dirty
+          # tree left by the publish steps (-f discards it).
+          git fetch origin main
+          git checkout -f -B main origin/main
+          .github/scripts/set-workspace-version.sh "$TAG_VERSION"
+
+          # Re-running a release, or tagging a commit whose version already
+          # matches, must not fail on an empty commit.
+          if git diff --quiet -- Cargo.toml Cargo.lock; then
+            echo "main already records $TAG_VERSION, nothing to commit"
+            exit 0
+          fi
+
+          git add Cargo.toml Cargo.lock
+          git commit -m "deploy: release $TAG_VERSION"
+
+          # If this push loses a race with a concurrent push to main, the crates
+          # are already published: re-run this step, or bump main by hand.
+          git push origin main

@@ -1,4 +1,4 @@
-use sqlx::SqlitePool;
+use sqlx::{AssertSqlSafe, SqlitePool};
 use sqlx_gen::introspect::sqlite::introspect;
 
 async fn setup_pool() -> SqlitePool {
@@ -6,6 +6,7 @@ async fn setup_pool() -> SqlitePool {
 }
 
 async fn exec(pool: &SqlitePool, sql: &str) {
+    let sql = AssertSqlSafe(sql);
     sqlx::query(sql).execute(pool).await.unwrap();
 }
 

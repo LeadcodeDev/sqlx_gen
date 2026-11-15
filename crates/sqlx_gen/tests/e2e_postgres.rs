@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::env;
 
-use sqlx::PgPool;
+use sqlx::{AssertSqlSafe, PgPool};
 use sqlx_gen::cli::{DatabaseKind, TimeCrate};
 use sqlx_gen::codegen::{self, GeneratedFile};
 use sqlx_gen::introspect::postgres::introspect;
@@ -30,6 +30,7 @@ async fn setup_schema(name: &str) -> PgPool {
 }
 
 async fn exec(pool: &PgPool, sql: &str) {
+    let sql = AssertSqlSafe(sql);
     sqlx::query(sql).execute(pool).await.unwrap();
 }
 

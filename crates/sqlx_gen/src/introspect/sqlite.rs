@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::error::Result;
-use sqlx::SqlitePool;
+use sqlx::{AssertSqlSafe, SqlitePool};
 
 use super::{ColumnInfo, EnumInfo, SchemaInfo, TableInfo};
 
@@ -180,8 +180,9 @@ async fn fetch_views(pool: &SqlitePool) -> Result<Vec<TableInfo>> {
 async fn fetch_columns(pool: &SqlitePool, table_name: &str) -> Result<Vec<ColumnInfo>> {
     // PRAGMA table_info returns: cid, name, type, notnull, dflt_value, pk
     let pragma_query = format!("PRAGMA table_info(\"{}\")", table_name.replace('"', "\"\""));
+    let pragma_query = AssertSqlSafe(pragma_query);
     let rows: Vec<(i32, String, String, bool, Option<String>, i32)> =
-        sqlx::query_as(&pragma_query).fetch_all(pool).await?;
+        sqlx::query_as(pragma_query).fetch_all(pool).await?;
 
     Ok(rows
         .into_iter()

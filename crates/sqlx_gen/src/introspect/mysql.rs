@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::error::Result;
-use sqlx::MySqlPool;
+use sqlx::{AssertSqlSafe, MySqlPool};
 
 use super::{ColumnInfo, EnumInfo, SchemaInfo, TableInfo};
 
@@ -59,6 +59,7 @@ async fn fetch_tables(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableI
         placeholders.join(",")
     );
 
+    let query = AssertSqlSafe(query);
     let mut q = sqlx::query_as::<
         _,
         (
@@ -71,7 +72,7 @@ async fn fetch_tables(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableI
             u32,
             Vec<u8>,
         ),
-    >(&query);
+    >(query);
     for schema in schemas {
         q = q.bind(schema);
     }
@@ -154,7 +155,8 @@ async fn fetch_views(pool: &MySqlPool, schemas: &[String]) -> Result<Vec<TableIn
         placeholders.join(",")
     );
 
-    let mut q = sqlx::query_as::<_, (String, String, String, String, String, String, u32)>(&query);
+    let query = AssertSqlSafe(query);
+    let mut q = sqlx::query_as::<_, (String, String, String, String, String, String, u32)>(query);
     for schema in schemas {
         q = q.bind(schema);
     }
@@ -221,7 +223,8 @@ async fn fetch_view_column_sources(
         placeholders.join(",")
     );
 
-    let mut q = sqlx::query_as::<_, (String, String, String, String, String)>(&query);
+    let query = AssertSqlSafe(query);
+    let mut q = sqlx::query_as::<_, (String, String, String, String, String)>(query);
     for schema in schemas {
         q = q.bind(schema);
     }

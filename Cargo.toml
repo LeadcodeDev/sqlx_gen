@@ -19,7 +19,7 @@ categories = ["database", "development-tools"]
 # crates are always released together.
 [workspace.dependencies]
 sqlx-gen-macros = { path = "crates/sqlx_gen_macros", version = "0.5.9" }
-sqlx = { version = "0.8", features = [
+sqlx = { version = "0.9.0", features = [
     "runtime-tokio",
     "tls-rustls-ring",
     "postgres",
